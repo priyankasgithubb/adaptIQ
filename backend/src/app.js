@@ -3,6 +3,7 @@ import cors from "cors";
 import session from "express-session";
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profile.js";
+import subjectRoutes from "./routes/subjects.js";
 
 export function createApp() {
   const app = express();
@@ -32,6 +33,7 @@ export function createApp() {
   app.get("/api/health", (req, res) => res.json({ ok: true }));
   app.use("/api/auth", authRoutes);
   app.use("/api/profile", profileRoutes);
+    app.use("/api/subjects", subjectRoutes);
 
   // Four parameters tell Express this is the error handler.
   app.use((err, req, res, next) => {
