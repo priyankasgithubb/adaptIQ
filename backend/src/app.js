@@ -6,6 +6,7 @@ import profileRoutes from "./routes/profile.js";
 import subjectRoutes from "./routes/subjects.js";
 import commitmentRoutes from "./routes/commitments.js";
 import examRoutes from "./routes/exams.js";
+import priorityRoutes from "./routes/priorities.js";
 
 export function createApp() {
   const app = express();
@@ -38,6 +39,7 @@ export function createApp() {
   app.use("/api/subjects", subjectRoutes);
   app.use("/api/commitments", commitmentRoutes);
   app.use("/api/exams", examRoutes);
+  app.use("/api/priorities", priorityRoutes);
 
   // Four parameters tell Express this is the error handler.
   app.use((err, req, res, next) => {
