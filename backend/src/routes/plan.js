@@ -71,6 +71,7 @@ async function generatePlan(userId, profile) {
   }
 
   let response;
+
   try {
     response = await fetch(`${PLANNER_URL}/plan`, {
       method: "POST",
@@ -95,15 +96,20 @@ async function generatePlan(userId, profile) {
   }
 
   if (!response.ok) {
-    return { error: "The planner could not build a timetable", status: 502 };
+    return {
+      error: "The planner could not build a timetable",
+      status: 502,
+    };
   }
 
   const data = await response.json();
+
   if (!Array.isArray(data.blocks)) {
     return { error: "Invalid planner response", status: 502 };
   }
 
   const allowedSubjects = new Set(priorities.map((p) => p.subjectId));
+
   const valid = data.blocks.every((b) =>
     Number.isInteger(b.weekday) &&
     b.weekday >= 0 &&
@@ -117,7 +123,10 @@ async function generatePlan(userId, profile) {
   );
 
   if (!valid) {
-    return { error: "Invalid timetable returned by planner", status: 502 };
+    return {
+      error: "Invalid timetable returned by planner",
+      status: 502,
+    };
   }
 
   return {
@@ -134,14 +143,19 @@ async function generatePlan(userId, profile) {
 // GET /api/plan
 router.get("/", asyncHandler(async (req, res) => {
   const profile = await getProfile(req.session.userId);
+
   if (!profile) {
-    return res.status(400).json({ error: "Set up your study profile first" });
+    return res.status(400).json({
+      error: "Set up your study profile first",
+    });
   }
 
   const result = await generatePlan(req.session.userId, profile);
+
   if (result.error) {
     return res.status(result.status || 400).json(result);
   }
+
   res.json(result);
 }));
 
@@ -151,16 +165,21 @@ router.post("/save", asyncHandler(async (req, res) => {
   const profile = await getProfile(userId);
 
   if (!profile) {
-    return res.status(400).json({ error: "Set up your study profile first" });
+    return res.status(400).json({
+      error: "Set up your study profile first",
+    });
   }
 
   const result = await generatePlan(userId, profile);
+
   if (result.error) {
     return res.status(result.status || 400).json(result);
   }
 
   if (!result.blocks.length) {
-    return res.status(422).json({ error: "No study sessions could be scheduled" });
+    return res.status(422).json({
+      error: "No study sessions could be scheduled",
+    });
   }
 
   const weekStart = getWeekStart(profile.timezone || "UTC");
@@ -168,6 +187,7 @@ router.post("/save", asyncHandler(async (req, res) => {
 
   try {
     await client.query("BEGIN");
+
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       [`${userId}:${weekStart}`]
@@ -179,21 +199,26 @@ router.post("/save", asyncHandler(async (req, res) => {
        WHERE user_id = $1 AND week_start = $2`,
       [userId, weekStart]
     );
+
     const version = Number(versionResult.rows[0].next_version);
 
     await client.query(
       `UPDATE study_plans
        SET status = 'archived', updated_at = NOW()
-       WHERE user_id = $1 AND week_start = $2 AND status = 'active'`,
+       WHERE user_id = $1
+         AND week_start = $2
+         AND status = 'active'`,
       [userId, weekStart]
     );
 
     const planResult = await client.query(
-      `INSERT INTO study_plans (user_id, week_start, version, status)
+      `INSERT INTO study_plans
+         (user_id, week_start, version, status)
        VALUES ($1, $2, $3, 'active')
        RETURNING id, week_start, version, status`,
       [userId, weekStart, version]
     );
+
     const plan = planResult.rows[0];
     const sessions = [];
 
@@ -204,12 +229,20 @@ router.post("/save", asyncHandler(async (req, res) => {
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, subject_id, weekday,
                    start_time, end_time, status, actual_minutes`,
-        [plan.id, block.subjectId, block.weekday, block.startTime, block.endTime]
+        [
+          plan.id,
+          block.subjectId,
+          block.weekday,
+          block.startTime,
+          block.endTime,
+        ]
       );
+
       sessions.push(sessionResult.rows[0]);
     }
 
     await client.query("COMMIT");
+
     return res.status(201).json({
       message: "Study plan saved successfully",
       plan,
@@ -229,23 +262,31 @@ router.get("/current", asyncHandler(async (req, res) => {
   const profile = await getProfile(userId);
 
   if (!profile) {
-    return res.status(400).json({ error: "Set up your study profile first" });
+    return res.status(400).json({
+      error: "Set up your study profile first",
+    });
   }
 
   const weekStart = getWeekStart(profile.timezone || "UTC");
+
   const planResult = await query(
     `SELECT id, week_start, version, status, created_at
      FROM study_plans
-     WHERE user_id = $1 AND week_start = $2 AND status = 'active'
+     WHERE user_id = $1
+       AND week_start = $2
+       AND status = 'active'
      LIMIT 1`,
     [userId, weekStart]
   );
 
   if (!planResult.rows.length) {
-    return res.status(404).json({ error: "No saved study plan for this week" });
+    return res.status(404).json({
+      error: "No saved study plan for this week",
+    });
   }
 
   const plan = planResult.rows[0];
+
   const sessionsResult = await query(
     `SELECT ss.id,
             ss.subject_id AS "subjectId",
@@ -257,12 +298,16 @@ router.get("/current", asyncHandler(async (req, res) => {
             ss.actual_minutes AS "actualMinutes"
      FROM study_sessions ss
      JOIN subjects s ON s.id = ss.subject_id
-     WHERE ss.plan_id = $1 AND s.user_id = $2
+     WHERE ss.plan_id = $1
+       AND s.user_id = $2
      ORDER BY ss.weekday, ss.start_time`,
     [plan.id, userId]
   );
 
-  res.json({ plan, blocks: sessionsResult.rows });
+  res.json({
+    plan,
+    blocks: sessionsResult.rows,
+  });
 }));
 
 // PATCH /api/plan/sessions/:id
@@ -270,67 +315,100 @@ router.patch("/sessions/:id", asyncHandler(async (req, res) => {
   const userId = req.session.userId;
   const sessionId = req.params.id;
   const { status, actualMinutes } = req.body ?? {};
-  const validStatuses = ["planned", "completed", "partial", "missed"];
+
+  const validStatuses = [
+    "planned",
+    "completed",
+    "partial",
+    "missed",
+  ];
 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-    return res.status(400).json({ error: "Invalid session ID" });
+    return res.status(400).json({
+      error: "Invalid session ID",
+    });
   }
 
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: "Invalid session status" });
+    return res.status(400).json({
+      error: "Invalid session status",
+    });
   }
 
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
+
     const result = await client.query(
-      `SELECT ss.id, ss.status,
-              FLOOR(EXTRACT(EPOCH FROM (ss.end_time - ss.start_time)) / 60)::int
+      `SELECT ss.id,
+              ss.status,
+              FLOOR(EXTRACT(EPOCH FROM
+                (ss.end_time - ss.start_time)) / 60)::int
                 AS scheduled_minutes
        FROM study_sessions ss
        JOIN study_plans sp ON sp.id = ss.plan_id
-       WHERE ss.id = $1 AND sp.user_id = $2 AND sp.status = 'active'
+       WHERE ss.id = $1
+         AND sp.user_id = $2
+         AND sp.status = 'active'
        FOR UPDATE OF ss`,
       [sessionId, userId]
     );
 
     if (!result.rows.length) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Active study session not found" });
+
+      return res.status(404).json({
+        error: "Active study session not found",
+      });
     }
 
     const session = result.rows[0];
     const duration = session.scheduled_minutes;
+
     let minutes = 0;
 
-    if (status === "completed") minutes = duration;
+    if (status === "completed") {
+      minutes = duration;
+    }
+
     if (status === "partial") {
-      if (!Number.isInteger(actualMinutes) || actualMinutes <= 0 || actualMinutes >= duration) {
+      if (
+        !Number.isInteger(actualMinutes) ||
+        actualMinutes <= 0 ||
+        actualMinutes >= duration
+      ) {
         await client.query("ROLLBACK");
+
         return res.status(400).json({
           error: "Partial minutes must be greater than zero and less than the session duration",
         });
       }
+
       minutes = actualMinutes;
     }
 
     const updated = await client.query(
       `UPDATE study_sessions
-       SET status = $1, actual_minutes = $2, updated_at = NOW()
+       SET status = $1,
+           actual_minutes = $2,
+           updated_at = NOW()
        WHERE id = $3
-       RETURNING id,
-                 plan_id AS "planId",
-                 subject_id AS "subjectId",
-                 weekday,
-                 TO_CHAR(start_time, 'HH24:MI') AS "startTime",
-                 TO_CHAR(end_time, 'HH24:MI') AS "endTime",
-                 status,
-                 actual_minutes AS "actualMinutes",
-                 updated_at AS "updatedAt"`,
+       RETURNING
+         id,
+         plan_id AS "planId",
+         subject_id AS "subjectId",
+         weekday,
+         TO_CHAR(start_time, 'HH24:MI') AS "startTime",
+         TO_CHAR(end_time, 'HH24:MI') AS "endTime",
+         status,
+         actual_minutes AS "actualMinutes",
+         updated_at AS "updatedAt"`,
       [status, minutes, sessionId]
     );
 
     await client.query("COMMIT");
+
     return res.json({
       message: "Study session updated successfully",
       session: {
@@ -347,14 +425,16 @@ router.patch("/sessions/:id", asyncHandler(async (req, res) => {
   }
 }));
 
-// Phase 3, Step 3: Recovery preview and apply
+// Phase 3: Recovery preview and apply
 const rescheduleHandler = asyncHandler(async (req, res) => {
   const applying = req.path === "/reschedule/apply";
   const userId = req.session.userId;
   const profile = await getProfile(userId);
 
   if (!profile) {
-    return res.status(400).json({ error: "Set up your study profile first" });
+    return res.status(400).json({
+      error: "Set up your study profile first",
+    });
   }
 
   const timezone = profile.timezone || "UTC";
@@ -363,7 +443,9 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
   const planResult = await query(
     `SELECT id, week_start, version
      FROM study_plans
-     WHERE user_id = $1 AND week_start = $2 AND status = 'active'
+     WHERE user_id = $1
+       AND week_start = $2
+       AND status = 'active'
      LIMIT 1`,
     [userId, weekStart]
   );
@@ -387,14 +469,15 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
             ss.actual_minutes AS "actualMinutes"
      FROM study_sessions ss
      JOIN subjects s ON s.id = ss.subject_id
-     WHERE ss.plan_id = $1 AND s.user_id = $2
+     WHERE ss.plan_id = $1
+       AND s.user_id = $2
      ORDER BY ss.weekday, ss.start_time`,
     [plan.id, userId]
   );
 
   const sessions = sessionsResult.rows;
 
-  // Calculate unfinished minutes by subject.
+  // Calculate unfinished minutes from missed/partial sessions.
   const unfinished = new Map();
 
   for (const session of sessions) {
@@ -403,7 +486,8 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     }
 
     const duration =
-      toMinutes(session.endTime) - toMinutes(session.startTime);
+      toMinutes(session.endTime) -
+      toMinutes(session.startTime);
 
     const remaining = Math.max(
       0,
@@ -422,9 +506,33 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     unfinished.set(session.subjectId, item);
   }
 
+  // Load unfinished minutes saved from earlier recovery attempts.
+  const backlogResult = await query(
+    `SELECT b.subject_id AS "subjectId",
+            s.name AS "subjectName",
+            b.remaining_minutes AS "remainingMin"
+     FROM study_plan_backlogs b
+     JOIN subjects s ON s.id = b.subject_id
+     WHERE b.plan_id = $1
+       AND s.user_id = $2
+       AND b.remaining_minutes > 0`,
+    [plan.id, userId]
+  );
+
+  for (const backlog of backlogResult.rows) {
+    const existing = unfinished.get(backlog.subjectId) || {
+      id: backlog.subjectId,
+      name: backlog.subjectName,
+      remainingMin: 0,
+    };
+
+    existing.remainingMin += Number(backlog.remainingMin);
+    unfinished.set(backlog.subjectId, existing);
+  }
+
   if (!unfinished.size) {
     return res.json({
-      message: "No missed or partial sessions to recover",
+      message: "No unfinished sessions or backlog to recover",
       previewOnly: !applying,
       blocks: [],
       remaining: [],
@@ -432,16 +540,20 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
   }
 
   const priorities = await loadPriorities(userId);
+
   const priorityMap = new Map(
     priorities.map((p) => [p.subjectId, p.score])
   );
 
   const subjects = [...unfinished.values()].map((s) => ({
     ...s,
-    score: Math.max(0, Number(priorityMap.get(s.id) ?? 0)),
+    score: Math.max(
+      0,
+      Number(priorityMap.get(s.id) ?? 0)
+    ),
   }));
 
-  // Find the current day and time in the learner's timezone.
+  // Determine the student's current local time.
   const nowParts = new Intl.DateTimeFormat("en-GB", {
     timeZone: timezone,
     year: "numeric",
@@ -461,19 +573,25 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     part("day")
   ));
 
-  const currentWeekday = (today.getUTCDay() + 6) % 7;
-  const currentMinute = part("hour") * 60 + part("minute");
-  const nextSlot = Math.ceil(currentMinute / 15) * 15;
+  const currentWeekday =
+    (today.getUTCDay() + 6) % 7;
+
+  const currentMinute =
+    part("hour") * 60 + part("minute");
+
+  const nextSlot =
+    Math.ceil(currentMinute / 15) * 15;
 
   const freeResult = await query(
     `SELECT weekday, start_time, end_time
      FROM commitments
-     WHERE user_id = $1 AND kind = 'free'
+     WHERE user_id = $1
+       AND kind = 'free'
      ORDER BY weekday, start_time`,
     [userId]
   );
 
-  // Only use future free time within the current week.
+  // Only future free windows in the current week.
   const freeWindows = freeResult.rows
     .filter((w) => w.weekday >= currentWeekday)
     .map((w) => ({
@@ -485,7 +603,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     }))
     .filter((w) => w.endMin > w.startMin);
 
-  // Existing sessions stay reserved.
+  // Existing sessions remain reserved.
   const blockedWindows = sessions.map((s) => ({
     weekday: s.weekday,
     startMin: toMinutes(s.startTime),
@@ -514,13 +632,14 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       : res.json(noSpace);
   }
 
-  // Request recovery blocks from the Python planner.
   let response;
 
   try {
     response = await fetch(`${PLANNER_URL}/reschedule`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         freeWindows,
         subjects,
@@ -552,8 +671,11 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     });
   }
 
-  // Validate the planner's output.
-  const subjectIds = new Set(subjects.map((s) => s.id));
+  // Validate the recovery timetable.
+  const subjectIds = new Set(
+    subjects.map((s) => s.id)
+  );
+
   const requested = new Map(
     subjects.map((s) => [s.id, s.remainingMin])
   );
@@ -597,7 +719,11 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       b.endMin > p.startMin
     );
 
-    if (!inFreeWindow || overlapsExisting || overlapsProposed) {
+    if (
+      !inFreeWindow ||
+      overlapsExisting ||
+      overlapsProposed
+    ) {
       valid = false;
       break;
     }
@@ -626,7 +752,8 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     subjectName: s.name,
     requestedMin: s.remainingMin,
     scheduledMin: scheduled.get(s.id) || 0,
-    unscheduledMin: s.remainingMin - (scheduled.get(s.id) || 0),
+    unscheduledMin:
+      s.remainingMin - (scheduled.get(s.id) || 0),
   }));
 
   const blocks = proposed.map((b) => ({
@@ -634,10 +761,12 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     startTime: fromMinutes(b.startMin),
     endTime: fromMinutes(b.endMin),
     subjectId: b.subjectId,
-    subjectName: subjects.find((s) => s.id === b.subjectId).name,
+    subjectName: subjects.find(
+      (s) => s.id === b.subjectId
+    ).name,
   }));
 
-  // Preview without changing PostgreSQL.
+  // Read-only preview.
   if (!applying) {
     return res.json({
       message: "Recovery timetable preview generated",
@@ -649,22 +778,21 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     });
   }
 
-  // Avoid losing unfinished study minutes.
   const outstanding = remaining.reduce(
     (total, s) => total + s.unscheduledMin,
     0
   );
 
-  if (outstanding > 0 || !blocks.length) {
+  // Save partial recovery only if at least one block fits.
+  if (!blocks.length) {
     return res.status(422).json({
-      error: "Not enough available time to recover all unfinished minutes",
+      error: "No recovery sessions can fit into the available time",
       unscheduledMinutes: outstanding,
       blocks,
       remaining,
     });
   }
 
-  // Save a new timetable version atomically.
   const client = await pool.connect();
 
   try {
@@ -675,7 +803,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       [`${userId}:${weekStart}`]
     );
 
-    // Confirm that the active plan has not changed.
+    // Ensure the plan has not changed.
     const active = await client.query(
       `SELECT id, version
        FROM study_plans
@@ -698,7 +826,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       });
     }
 
-    // Check that session progress has not changed.
+    // Verify session progress is unchanged.
     const lockedSessions = await client.query(
       `SELECT id,
               status,
@@ -721,7 +849,8 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
         return (
           old &&
           old.status === s.status &&
-          Number(old.actualMinutes) === Number(s.actualMinutes)
+          Number(old.actualMinutes) ===
+            Number(s.actualMinutes)
         );
       });
 
@@ -733,10 +862,44 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       });
     }
 
+    // Verify the backlog has not changed.
+    const lockedBacklog = await client.query(
+      `SELECT subject_id AS "subjectId",
+              remaining_minutes AS "remainingMin"
+       FROM study_plan_backlogs
+       WHERE plan_id = $1
+       FOR UPDATE`,
+      [plan.id]
+    );
+
+    const backlogSnapshot = new Map(
+      backlogResult.rows.map((b) => [
+        b.subjectId,
+        Number(b.remainingMin),
+      ])
+    );
+
+    const backlogUnchanged =
+      lockedBacklog.rows.length === backlogSnapshot.size &&
+      lockedBacklog.rows.every((b) =>
+        backlogSnapshot.has(b.subjectId) &&
+        Number(b.remainingMin) ===
+          backlogSnapshot.get(b.subjectId)
+      );
+
+    if (!backlogUnchanged) {
+      await client.query("ROLLBACK");
+
+      return res.status(409).json({
+        error: "Study backlog changed. Retry rescheduling.",
+      });
+    }
+
     const nextVersionResult = await client.query(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
        FROM study_plans
-       WHERE user_id = $1 AND week_start = $2`,
+       WHERE user_id = $1
+         AND week_start = $2`,
       [userId, weekStart]
     );
 
@@ -744,7 +907,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       nextVersionResult.rows[0].next_version
     );
 
-    // Archive the previous version.
+    // Keep the previous plan as historical data.
     await client.query(
       `UPDATE study_plans
        SET status = 'archived',
@@ -763,8 +926,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
 
     const newPlan = newPlanResult.rows[0];
 
-    // Preserve existing planned and completed sessions.
-    // The archived plan retains the missed/partial history.
+    // Carry forward existing planned/completed sessions.
     await client.query(
       `INSERT INTO study_sessions
          (plan_id, subject_id, weekday,
@@ -777,7 +939,7 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       [newPlan.id, plan.id]
     );
 
-    // Insert the recovery sessions into the new plan.
+    // Save newly scheduled recovery sessions.
     for (const b of blocks) {
       await client.query(
         `INSERT INTO study_sessions
@@ -794,6 +956,22 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       );
     }
 
+    // Save unfinished minutes against the new plan.
+    for (const item of remaining) {
+      if (item.unscheduledMin <= 0) continue;
+
+      await client.query(
+        `INSERT INTO study_plan_backlogs
+           (plan_id, subject_id, remaining_minutes)
+         VALUES ($1, $2, $3)`,
+        [
+          newPlan.id,
+          item.subjectId,
+          item.unscheduledMin,
+        ]
+      );
+    }
+
     await client.query("COMMIT");
 
     return res.status(201).json({
@@ -802,8 +980,9 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
       plan: newPlan,
       recoveryBlocks: blocks,
       remaining,
+      partialRecovery: outstanding > 0,
+      unscheduledMinutes: outstanding,
     });
-
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
