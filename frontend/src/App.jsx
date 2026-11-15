@@ -1,5 +1,8 @@
-
 import { useEffect, useState } from "react";
+import ProfileOnboarding from "./components/ProfileOnboarding";
+import SubjectsOnboarding from "./components/SubjectsOnboarding";
+import AvailabilityOnboarding from "./components/AvailabilityOnboarding";
+import PlanOnboarding from "./components/PlanOnboarding";
 
 const days = [
   { day: "MON", height: 44 },
@@ -375,16 +378,28 @@ export default function App() {
     );
   }
 
-  if (user) {
-    return (
-      <SignedInScreen
-        user={user}
-        onLogout={handleLogout}
-        loading={loading}
-        error={error}
-      />
-    );
-  }
+
+
+if (user) {
+  return (
+    <ProfileOnboarding>
+      <SubjectsOnboarding>
+        <AvailabilityOnboarding>
+          <PlanOnboarding>
+            <SignedInScreen
+              user={user}
+              onLogout={handleLogout}
+              loading={loading}
+              error={error}
+            />
+          </PlanOnboarding>
+        </AvailabilityOnboarding>
+      </SubjectsOnboarding>
+    </ProfileOnboarding>
+  );
+}
+
+
 
   return (
     <div className="min-h-screen bg-cream lg:grid lg:grid-cols-[1fr_1fr]">
