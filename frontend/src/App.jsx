@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const days = [
   { day: "MON", height: 44 },
@@ -11,13 +11,45 @@ const days = [
   { day: "SUN", height: 52 },
 ];
 
-function BrandMark() {
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`/api/auth${path}`, {
+    ...options,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Request failed (${response.status})`
+    );
+  }
+
+  return data;
+}
+
+function BrandMark({ light = false }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-[13px] bg-espresso text-xl font-bold text-cream">
-        a<span className="text-coral">.</span>
+      <div
+        className={`flex h-10 w-10 items-center justify-center rounded-[13px] text-xl font-bold ${
+          light
+            ? "bg-coral text-espresso"
+            : "bg-espresso text-cream"
+        }`}
+      >
+        a.
       </div>
-      <span className="text-[21px] font-bold tracking-[-0.06em] text-espresso">
+
+      <span
+        className={`text-[21px] font-bold tracking-[-0.06em] ${
+          light ? "text-white" : "text-espresso"
+        }`}
+      >
         adapt<span className="text-coral">IQ</span>
       </span>
     </div>
@@ -37,6 +69,7 @@ function PlannerPreview() {
               Your study rhythm
             </h3>
           </div>
+
           <div className="rounded-full bg-[#6A5147] px-3 py-1.5 text-xs text-[#F1D8CB]">
             This week
           </div>
@@ -56,6 +89,7 @@ function PlannerPreview() {
                   style={{ height: `${height}%` }}
                 />
               </div>
+
               <span className="text-[9px] font-semibold tracking-wider text-[#CBBAB0]">
                 {day}
               </span>
@@ -75,6 +109,7 @@ function PlannerPreview() {
 
           <div className="flex items-center gap-3 rounded-xl bg-[#5A443A] p-3">
             <div className="h-11 w-1 rounded-full bg-coral" />
+
             <div className="flex-1">
               <p className="text-sm font-medium text-white">
                 Mathematics
@@ -83,6 +118,7 @@ function PlannerPreview() {
                 Focus session · 45 min
               </p>
             </div>
+
             <div className="rounded-lg bg-[#74584C] px-2.5 py-1.5 text-xs text-white">
               10:00
             </div>
@@ -91,10 +127,16 @@ function PlannerPreview() {
       </div>
 
       <div className="absolute -bottom-5 -right-3 rounded-2xl border border-[#E9D6C9] bg-[#FFF8F1] px-5 py-4 shadow-xl sm:-right-6">
-        <p className="text-xs text-[#877066]">Your progress</p>
+        <p className="text-xs text-[#877066]">
+          Your progress
+        </p>
         <div className="mt-1 flex items-center gap-2">
-          <span className="text-2xl font-bold text-espresso">+24%</span>
-          <span className="text-xs text-[#866F63]">Demo data</span>
+          <span className="text-2xl font-bold text-espresso">
+            +24%
+          </span>
+          <span className="text-xs text-[#866F63]">
+            Demo data
+          </span>
         </div>
       </div>
     </div>
@@ -114,6 +156,7 @@ function AuthField({
       <span className="mb-2 block text-[13px] font-semibold text-espresso">
         {label}
       </span>
+
       <input
         type={type}
         value={value}
@@ -127,6 +170,61 @@ function AuthField({
   );
 }
 
+function SignedInScreen({ user, onLogout, loading, error }) {
+  return (
+    <main className="flex min-h-screen flex-col bg-cream px-6 py-7 sm:px-12">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
+        <BrandMark />
+
+        <button
+          type="button"
+          onClick={onLogout}
+          disabled={loading}
+          className="rounded-xl border border-[#DED5CD] px-5 py-2.5 text-sm font-semibold text-espresso transition hover:bg-sand disabled:opacity-50"
+        >
+          {loading ? "Signing out..." : "Sign out"}
+        </button>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center py-20">
+        <div className="max-w-2xl">
+          <div className="mb-6 inline-flex rounded-full bg-[#F2DDD4] px-4 py-2 text-xs font-semibold tracking-wide text-[#8F5848]">
+            YOUR LEARNING WORKSPACE
+          </div>
+
+          <h1 className="text-[clamp(38px,6vw,72px)] font-semibold leading-[1.08] tracking-[-0.065em] text-espresso">
+            Welcome to
+            <br />
+            <span className="font-serif italic text-[#C77761]">
+              AdaptIQ.
+            </span>
+          </h1>
+
+          <p className="mt-6 max-w-lg text-base leading-7 text-muted">
+            You're successfully signed in. Your personalized
+            dashboard and weekly planner are coming next.
+          </p>
+
+          <div className="mt-10 rounded-2xl border border-[#E2D7CC] bg-white p-6">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+              Signed in as
+            </p>
+            <p className="mt-2 break-all text-lg font-semibold text-espresso">
+              {user.email}
+            </p>
+          </div>
+
+          {error && (
+            <p role="alert" className="mt-5 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [mode, setMode] = useState("login");
 
@@ -137,7 +235,42 @@ export default function App() {
     confirmPassword: "",
   });
 
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
   const isRegister = mode === "register";
+
+  // Restore the existing login session on refresh.
+  useEffect(() => {
+    let active = true;
+
+    async function checkSession() {
+      try {
+        const data = await apiRequest("/me");
+
+        if (active) {
+          setUser(data.user);
+        }
+      } catch {
+        // A missing session is normal for signed-out users.
+        if (active) {
+          setUser(null);
+        }
+      } finally {
+        if (active) {
+          setCheckingSession(false);
+        }
+      }
+    }
+
+    checkSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function update(field, value) {
     setForm((previous) => ({
@@ -148,12 +281,109 @@ export default function App() {
 
   function changeMode(nextMode) {
     setMode(nextMode);
+    setError("");
     setForm({
       name: "",
       email: "",
       password: "",
       confirmPassword: "",
     });
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (loading) return;
+
+    setError("");
+
+    if (isRegister && form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    if (
+      isRegister &&
+      (form.password.length < 8 || form.password.length > 72)
+    ) {
+      setError("Password must be between 8 and 72 characters.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const endpoint = isRegister ? "/register" : "/login";
+
+      // The current backend accepts email and password only.
+      const data = await apiRequest(endpoint, {
+        method: "POST",
+        body: JSON.stringify({
+          email: form.email.trim(),
+          password: form.password,
+        }),
+      });
+
+      setUser(data.user);
+
+      setForm({
+        name: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+      });
+    } catch (err) {
+      setError(err.message || "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    if (loading) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      await apiRequest("/logout", {
+        method: "POST",
+      });
+
+      setUser(null);
+      changeMode("login");
+    } catch (err) {
+      setError(err.message || "Could not sign out.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (checkingSession) {
+    return (
+      <div
+        role="status"
+        className="flex min-h-screen items-center justify-center bg-cream"
+      >
+        <div className="text-center">
+          <BrandMark />
+          <p className="mt-5 text-sm text-muted">
+            Loading your workspace...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (user) {
+    return (
+      <SignedInScreen
+        user={user}
+        onLogout={handleLogout}
+        loading={loading}
+        error={error}
+      />
+    );
   }
 
   return (
@@ -163,13 +393,8 @@ export default function App() {
         <div className="pointer-events-none absolute -left-40 top-32 h-[450px] w-[450px] rounded-full border border-white/10" />
         <div className="pointer-events-none absolute -left-24 top-48 h-[320px] w-[320px] rounded-full border border-white/10" />
 
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[13px] bg-coral text-xl font-bold text-espresso">
-            a.
-          </div>
-          <span className="text-[21px] font-bold tracking-[-0.06em] text-white">
-            adapt<span className="text-coral">IQ</span>
-          </span>
+        <div className="relative z-10">
+          <BrandMark light />
         </div>
 
         <div className="relative z-10 my-auto py-16">
@@ -181,7 +406,10 @@ export default function App() {
             <h1 className="max-w-[520px] text-[clamp(42px,4.4vw,67px)] font-semibold leading-[1.07] tracking-[-0.065em] text-[#FBF5EF]">
               Make room for
               <br />
-              what <span className="font-serif italic text-coral">matters.</span>
+              what{" "}
+              <span className="font-serif italic text-coral">
+                matters.
+              </span>
             </h1>
 
             <p className="mt-6 max-w-[410px] text-[15px] leading-7 text-[#D0BCB1]">
@@ -209,9 +437,12 @@ export default function App() {
 
           <div className="ml-auto text-[13px] text-muted">
             {isRegister ? "Already have an account?" : "New here?"}
+
             <button
               type="button"
-              onClick={() => changeMode(isRegister ? "login" : "register")}
+              onClick={() =>
+                changeMode(isRegister ? "login" : "register")
+              }
               className="ml-2 font-semibold text-espresso underline decoration-coral decoration-2 underline-offset-4"
             >
               {isRegister ? "Sign in" : "Create account"}
@@ -226,7 +457,9 @@ export default function App() {
             </span>
 
             <h2 className="mt-3 text-[clamp(32px,3vw,42px)] font-semibold tracking-[-0.055em] text-espresso">
-              {isRegister ? "Start your journey." : "Pick up where you left off."}
+              {isRegister
+                ? "Start your journey."
+                : "Pick up where you left off."}
             </h2>
 
             <p className="mt-3 text-sm leading-6 text-muted">
@@ -236,7 +469,7 @@ export default function App() {
             </p>
           </div>
 
-          <div className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {isRegister && (
               <AuthField
                 label="Full name"
@@ -262,7 +495,9 @@ export default function App() {
               value={form.password}
               onChange={(value) => update("password", value)}
               placeholder="Enter your password"
-              autoComplete={isRegister ? "new-password" : "current-password"}
+              autoComplete={
+                isRegister ? "new-password" : "current-password"
+              }
             />
 
             {isRegister && (
@@ -270,25 +505,39 @@ export default function App() {
                 label="Confirm password"
                 type="password"
                 value={form.confirmPassword}
-                onChange={(value) => update("confirmPassword", value)}
+                onChange={(value) =>
+                  update("confirmPassword", value)
+                }
                 placeholder="Confirm your password"
                 autoComplete="new-password"
               />
             )}
 
-            <button
-              type="button"
-              disabled
-              title="Backend authentication connection is the next step"
-              className="mt-3 w-full cursor-not-allowed rounded-xl bg-espresso px-5 py-4 text-[14px] font-semibold text-white opacity-70"
-            >
-              {isRegister ? "Create account" : "Sign in"}
-            </button>
+            {error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
 
-            <p className="text-center text-xs leading-5 text-muted">
-              Authentication UI preview — API connection is next.
-            </p>
-          </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-3 w-full rounded-xl bg-espresso px-5 py-4 text-[14px] font-semibold text-white transition hover:bg-[#48362F] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading
+                ? "Please wait..."
+                : isRegister
+                  ? "Create account"
+                  : "Sign in"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs leading-5 text-muted">
+            Your learning journey starts here.
+          </p>
         </div>
 
         <p className="text-center text-xs text-[#A4988E]">
