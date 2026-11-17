@@ -669,6 +669,55 @@ router.patch("/sessions/:id", asyncHandler(async (req, res) => {
   }
 }));
 
+
+function recoverySnapshot(sessions, backlog) {
+  return JSON.stringify({
+    sessions: sessions
+      .map((s) => [
+        String(s.id),
+        String(s.status),
+        Number(s.actualMinutes ?? 0),
+      ])
+      .sort((a, b) => a[0].localeCompare(b[0])),
+
+    backlog: backlog
+      .map((b) => [
+        String(b.subjectId),
+        Number(b.remainingMin),
+      ])
+      .sort((a, b) => a[0].localeCompare(b[0])),
+  });
+}
+
+function recoveryBlockSignature(blocks) {
+  return blocks
+    .map((b) =>
+      [
+        b.subjectId,
+        b.weekday,
+        b.startTime,
+        b.endTime,
+      ].join("|")
+    )
+    .sort()
+    .join("\n");
+}
+
+function recoveryRemainingSignature(items) {
+  return items
+    .map((item) =>
+      [
+        item.subjectId,
+        Number(item.requestedMin),
+        Number(item.scheduledMin),
+        Number(item.unscheduledMin),
+      ].join("|")
+    )
+    .sort()
+    .join("\n");
+}
+
+
 // Phase 3: Recovery preview and apply
 const rescheduleHandler = asyncHandler(async (req, res) => {
   const applying = req.path === "/reschedule/apply";
@@ -773,6 +822,41 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     existing.remainingMin += Number(backlog.remainingMin);
     unfinished.set(backlog.subjectId, existing);
   }
+
+
+const snapshot = recoverySnapshot(
+  sessions,
+  backlogResult.rows
+);
+
+const expected = applying ? req.body?.preview : null;
+
+if (applying) {
+  if (
+    !expected ||
+    typeof expected.planId !== "string" ||
+    !Number.isInteger(Number(expected.version)) ||
+    typeof expected.snapshot !== "string" ||
+    !Array.isArray(expected.blocks) ||
+    !Array.isArray(expected.remaining)
+  ) {
+    return res.status(400).json({
+      error: "Generate a recovery preview before applying.",
+    });
+  }
+
+  if (
+    expected.planId !== plan.id ||
+    Number(expected.version) !== Number(plan.version) ||
+    expected.snapshot !== snapshot
+  ) {
+    return res.status(409).json({
+      error:
+        "Your timetable or study progress has changed. Generate a fresh recovery preview.",
+    });
+  }
+}
+
 
   if (!unfinished.size) {
     return res.json({
@@ -1010,17 +1094,34 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     ).name,
   }));
 
-  // Read-only preview.
-  if (!applying) {
-    return res.json({
-      message: "Recovery timetable preview generated",
-      planId: plan.id,
-      version: plan.version,
-      previewOnly: true,
-      blocks,
-      remaining,
-    });
-  }
+
+// Read-only preview.
+if (!applying) {
+  return res.json({
+    message: "Recovery timetable preview generated",
+    planId: plan.id,
+    version: plan.version,
+    snapshot,
+    previewOnly: true,
+    blocks,
+    remaining,
+  });
+}
+
+// Ensure the user approves the exact timetable
+// and remaining workload returned by the preview.
+if (
+  recoveryBlockSignature(expected.blocks) !==
+    recoveryBlockSignature(blocks) ||
+  recoveryRemainingSignature(expected.remaining) !==
+    recoveryRemainingSignature(remaining)
+) {
+  return res.status(409).json({
+    error:
+      "The proposed recovery timetable has changed. Generate a fresh preview.",
+  });
+}
+
 
   const outstanding = remaining.reduce(
     (total, s) => total + s.unscheduledMin,
@@ -1138,6 +1239,24 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
         error: "Study backlog changed. Retry rescheduling.",
       });
     }
+
+
+// Compare locked database records against the
+// originally approved preview as well.
+if (
+  recoverySnapshot(
+    lockedSessions.rows,
+    lockedBacklog.rows
+  ) !== expected.snapshot
+) {
+  await client.query("ROLLBACK");
+
+  return res.status(409).json({
+    error:
+      "Study progress changed after the preview. Generate a fresh recovery plan.",
+  });
+}
+
 
     const nextVersionResult = await client.query(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version

@@ -4,6 +4,7 @@ import ManageSubjects from "./ManageSubjects";
 import ManageAvailability from "./ManageAvailability";
 import ManageProfile from "./ManageProfile";
 import PlanRegeneration from "./PlanRegeneration";
+import AdaptiveRecovery from "./AdaptiveRecovery";
 
 const DAYS = [
   "Monday",
@@ -478,8 +479,16 @@ if (activeView === "regenerate") {
   );
 }
 
-
-
+if (activeView === "recovery") {
+  return (
+    <AdaptiveRecovery
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+    />
+  );
+}
 
 
   return (
@@ -529,6 +538,14 @@ if (activeView === "regenerate") {
                 className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
             >
                 Update Timetable
+            </button>
+
+            <button
+                type="button"
+                onClick={() => setActiveView("recovery")}
+                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+            >
+                Adaptive Recovery
             </button>
 
             <span className="hidden max-w-[220px] truncate text-xs text-muted sm:block">
