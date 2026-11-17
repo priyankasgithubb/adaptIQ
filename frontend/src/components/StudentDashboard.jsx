@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import SubjectInsights from "./SubjectInsights";
 import ManageSubjects from "./ManageSubjects";
 import ManageAvailability from "./ManageAvailability";
+import ManageProfile from "./ManageProfile";
+import PlanRegeneration from "./PlanRegeneration";
 
 const DAYS = [
   "Monday",
@@ -450,6 +452,35 @@ if (activeView === "schedule") {
 }
 
 
+if (activeView === "settings") {
+  return (
+    <ManageProfile
+      user={user}
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+      onLogout={onLogout}
+      logoutLoading={logoutLoading}
+    />
+  );
+}
+
+
+if (activeView === "regenerate") {
+  return (
+    <PlanRegeneration
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+    />
+  );
+}
+
+
+
+
 
   return (
     <div className="min-h-screen bg-cream text-espresso">
@@ -480,6 +511,24 @@ if (activeView === "schedule") {
                 className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
             >
                 My Schedule
+            </button>
+
+
+            <button
+                 type="button"
+                onClick={() => setActiveView("settings")}
+                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+            >
+                Study Settings
+            </button>
+
+
+            <button
+                type="button"
+                onClick={() => setActiveView("regenerate")}
+                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+            >
+                Update Timetable
             </button>
 
             <span className="hidden max-w-[220px] truncate text-xs text-muted sm:block">

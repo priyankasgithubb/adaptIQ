@@ -256,6 +256,250 @@ router.post("/save", asyncHandler(async (req, res) => {
   }
 }));
 
+
+/**
+ * POST /api/plan/regenerate/approve
+ *
+ * Approves a previously previewed timetable.
+ * Preserves recorded progress only when the matching
+ * subject, weekday, and time slot remain unchanged.
+ */
+router.post(
+  "/regenerate/approve",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
+    const { expectedPlanId, previewBlocks } = req.body ?? {};
+
+    if (
+      typeof expectedPlanId !== "string" ||
+      !Array.isArray(previewBlocks) ||
+      previewBlocks.length === 0
+    ) {
+      return res.status(400).json({
+        error: "A current plan and valid preview are required.",
+      });
+    }
+
+    const profile = await getProfile(userId);
+
+    if (!profile) {
+      return res.status(400).json({
+        error: "Set up your study profile first.",
+      });
+    }
+
+    // Generate again using current server-side data.
+    // Never blindly trust timetable blocks sent by the browser.
+    const result = await generatePlan(userId, profile);
+
+    if (result.error) {
+      return res.status(result.status || 400).json(result);
+    }
+
+    const blockKey = (block) =>
+      [
+        String(block.subjectId),
+        Number(block.weekday),
+        String(block.startTime).slice(0, 5),
+        String(block.endTime).slice(0, 5),
+      ].join("|");
+
+    const signature = (blocks) =>
+      blocks.map(blockKey).sort().join("\n");
+
+    if (
+      signature(previewBlocks) !==
+      signature(result.blocks)
+    ) {
+      return res.status(409).json({
+        error:
+          "Your study inputs or generated timetable have changed. Please generate a fresh preview.",
+      });
+    }
+
+    const weekStart = getWeekStart(profile.timezone || "UTC");
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Serialize regeneration for this user and week.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        [`${userId}:${weekStart}`]
+      );
+
+      const activeResult = await client.query(
+        `SELECT id, version
+         FROM study_plans
+         WHERE user_id = $1
+           AND week_start = $2
+           AND status = 'active'
+         FOR UPDATE`,
+        [userId, weekStart]
+      );
+
+      const active = activeResult.rows[0];
+
+      if (!active || active.id !== expectedPlanId) {
+        await client.query("ROLLBACK");
+
+        return res.status(409).json({
+          error:
+            "Your active timetable has changed. Please refresh and generate a new preview.",
+        });
+      }
+
+      const sessionsResult = await client.query(
+        `SELECT id,
+                subject_id AS "subjectId",
+                weekday,
+                TO_CHAR(start_time, 'HH24:MI') AS "startTime",
+                TO_CHAR(end_time, 'HH24:MI') AS "endTime",
+                status,
+                actual_minutes AS "actualMinutes"
+         FROM study_sessions
+         WHERE plan_id = $1
+         FOR UPDATE`,
+        [active.id]
+      );
+
+      const oldSessions = sessionsResult.rows;
+
+      // Group existing sessions by their exact time slot.
+      const oldByKey = new Map();
+
+      for (const session of oldSessions) {
+        const key = blockKey(session);
+
+        if (!oldByKey.has(key)) {
+          oldByKey.set(key, []);
+        }
+
+        oldByKey.get(key).push(session);
+      }
+
+      // Prefer retaining recorded sessions when duplicate
+      // matching time slots exist.
+      for (const matches of oldByKey.values()) {
+        matches.sort((a, b) => {
+          const aTracked = a.status !== "planned" ? 1 : 0;
+          const bTracked = b.status !== "planned" ? 1 : 0;
+          return bTracked - aTracked;
+        });
+      }
+
+      const replacements = [];
+
+      for (const block of result.blocks) {
+        const matches = oldByKey.get(blockKey(block)) || [];
+        const previous = matches.shift() || null;
+
+        replacements.push({ block, previous });
+      }
+
+      // Don't allow recorded progress to disappear
+      // from the new active timetable.
+      const removedTrackedSessions = [
+        ...oldByKey.values(),
+      ]
+        .flat()
+        .filter((session) => session.status !== "planned");
+
+      if (removedTrackedSessions.length > 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(409).json({
+          error:
+            "This timetable would move or remove sessions with recorded progress. Your current plan is unchanged. Preserve those sessions or use adaptive recovery before replacing the plan.",
+          protectedSessions: removedTrackedSessions.length,
+        });
+      }
+
+      const versionResult = await client.query(
+        `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+         FROM study_plans
+         WHERE user_id = $1 AND week_start = $2`,
+        [userId, weekStart]
+      );
+
+      const nextVersion = Number(
+        versionResult.rows[0].next_version
+      );
+
+      await client.query(
+        `UPDATE study_plans
+         SET status = 'archived',
+             updated_at = NOW()
+         WHERE id = $1`,
+        [active.id]
+      );
+
+      const planResult = await client.query(
+        `INSERT INTO study_plans
+           (user_id, week_start, version, status)
+         VALUES ($1, $2, $3, 'active')
+         RETURNING id, week_start, version, status`,
+        [userId, weekStart, nextVersion]
+      );
+
+      const newPlan = planResult.rows[0];
+      const savedSessions = [];
+
+      for (const { block, previous } of replacements) {
+        const tracked =
+          previous && previous.status !== "planned";
+
+        const sessionResult = await client.query(
+          `INSERT INTO study_sessions
+             (
+               plan_id,
+               subject_id,
+               weekday,
+               start_time,
+               end_time,
+               status,
+               actual_minutes
+             )
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id,
+                     subject_id AS "subjectId",
+                     weekday,
+                     TO_CHAR(start_time, 'HH24:MI') AS "startTime",
+                     TO_CHAR(end_time, 'HH24:MI') AS "endTime",
+                     status,
+                     actual_minutes AS "actualMinutes"`,
+          [
+            newPlan.id,
+            block.subjectId,
+            block.weekday,
+            block.startTime,
+            block.endTime,
+            tracked ? previous.status : "planned",
+            tracked ? previous.actualMinutes : 0,
+          ]
+        );
+
+        savedSessions.push(sessionResult.rows[0]);
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        message: "Updated timetable approved and saved.",
+        plan: newPlan,
+        sessions: savedSessions,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
+
+
 // GET /api/plan/current
 router.get("/current", asyncHandler(async (req, res) => {
   const userId = req.session.userId;
