@@ -1,7 +1,11 @@
-
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, model_validator
 from scheduler import build_schedule, build_recovery_schedule
+
+from ml.prediction_service import (
+    get_prediction_status,
+    predict_assessment,
+)
 
 app = FastAPI(title="AdaptIQ Planner")
 
@@ -99,3 +103,16 @@ def reschedule(req: RescheduleRequest):
         "blocks": blocks,
         "remaining": remaining,
     }
+
+    
+# Phase 5: Machine learning prediction service
+
+@app.get("/predict/status")
+def prediction_status():
+    return get_prediction_status()
+
+
+@app.post("/predict")
+def predict():
+    return predict_assessment()
+

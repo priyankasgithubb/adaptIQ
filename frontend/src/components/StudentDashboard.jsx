@@ -5,6 +5,7 @@ import ManageAvailability from "./ManageAvailability";
 import ManageProfile from "./ManageProfile";
 import PlanRegeneration from "./PlanRegeneration";
 import AdaptiveRecovery from "./AdaptiveRecovery";
+import StudentAnalytics from "./StudentAnalytics";
 
 const DAYS = [
   "Monday",
@@ -490,6 +491,17 @@ if (activeView === "recovery") {
   );
 }
 
+if (activeView === "analytics") {
+  return (
+    <StudentAnalytics
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+    />
+  );
+}
+
 
   return (
     <div className="min-h-screen bg-cream text-espresso">
@@ -529,6 +541,14 @@ if (activeView === "recovery") {
                 className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
             >
                 Study Settings
+            </button>
+
+            <button
+                type="button"
+                    onClick={() => setActiveView("analytics")}
+                    className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+            >
+                Study Analytics
             </button>
 
 

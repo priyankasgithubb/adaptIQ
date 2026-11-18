@@ -8,6 +8,8 @@ import commitmentRoutes from "./routes/commitments.js";
 import examRoutes from "./routes/exams.js";
 import priorityRoutes from "./routes/priorities.js";
 import planRoutes from "./routes/plan.js";
+import mlRoutes from "./routes/ml.js";
+import analyticsRoutes from "./routes/analytics.js";
 
 
 export function createApp() {
@@ -43,6 +45,8 @@ export function createApp() {
   app.use("/api/exams", examRoutes);
   app.use("/api/priorities", priorityRoutes);
   app.use("/api/plan", planRoutes);
+  app.use("/api/ml", mlRoutes);
+  app.use("/api/analytics", analyticsRoutes);
   
   // Four parameters tell Express this is the error handler.
   app.use((err, req, res, next) => {

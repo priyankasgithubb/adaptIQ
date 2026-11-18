@@ -59,7 +59,7 @@ function ScoreBar({ label, value, max = 100 }) {
   );
 }
 
-function SubjectCard({ priority, subject, rank }) {
+function SubjectCard({ priority, subject, study, rank }) {
   const average = displayNumber(subject?.averagePercent);
   const target = displayNumber(subject?.targetScore);
 
@@ -127,6 +127,60 @@ function SubjectCard({ priority, subject, rank }) {
           </div>
         </div>
 
+
+        
+<div className="rounded-xl bg-[#FCF8F4] p-4">
+  <p className="text-[11px] font-bold uppercase tracking-wider text-[#AC745F]">
+    Study activity this week
+  </p>
+
+  <div className="mt-4 grid grid-cols-2 gap-4">
+    <div>
+      <p className="text-xs text-muted">
+        Planned study time
+      </p>
+
+      <p className="mt-2 text-xl font-semibold text-espresso">
+        {study?.plannedMinutes ?? 0} min
+      </p>
+    </div>
+
+    <div>
+      <p className="text-xs text-muted">
+        Completed study time
+      </p>
+
+      <p className="mt-2 text-xl font-semibold text-espresso">
+        {study?.completedMinutes ?? 0} min
+      </p>
+    </div>
+  </div>
+
+  <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EFE7DF]">
+    <div
+      className="h-full rounded-full bg-coral transition-all"
+      style={{
+        width: `${
+          study?.plannedMinutes > 0
+            ? Math.min(
+                100,
+                (Number(study.completedMinutes || 0) /
+                  Number(study.plannedMinutes)) *
+                  100
+              )
+            : 0
+        }%`,
+      }}
+    />
+  </div>
+
+  <p className="mt-2 text-[11px] leading-5 text-muted">
+    Recorded time from the active weekly timetable.
+    Archived sessions are not included.
+    Study time does not directly measure academic improvement.
+  </p>
+</div>
+
         <div className="rounded-xl border border-[#F0E1D6] bg-[#FFFAF5] p-4">
           <p className="text-[11px] font-bold uppercase tracking-wider text-[#AC745F]">
             Main priority factor
@@ -150,7 +204,8 @@ function SubjectCard({ priority, subject, rank }) {
 
 export default function SubjectInsights() {
   const [priorities, setPriorities] = useState([]);
-  const [subjects, setSubjects] = useState([]);
+  const [subjects, setSubjects] = useState([]); 
+  const [studyActivity, setStudyActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -198,6 +253,29 @@ export default function SubjectInsights() {
           ? subjectsData.subjects
           : []
       );
+
+      // Study activity is supplementary.
+// Existing subject insights still work if analytics fails.
+try {
+  const analyticsResponse = await fetch(
+    "/api/analytics/overview",
+    { credentials: "include" }
+  );
+
+  if (analyticsResponse.ok) {
+    const analyticsData = await analyticsResponse.json();
+
+    setStudyActivity(
+      Array.isArray(analyticsData.subjectBreakdown)
+        ? analyticsData.subjectBreakdown
+        : []
+    );
+  } else {
+    setStudyActivity([]);
+  }
+} catch {
+  setStudyActivity([]);
+}
     } catch (err) {
       setError(err.message || "Could not load subject insights.");
     } finally {
@@ -306,8 +384,11 @@ export default function SubjectInsights() {
                 key={priority.subjectId}
                 priority={priority}
                 subject={subjectsById.get(priority.subjectId)}
+                study={studyActivity.find(
+                    (item) => item.subjectId === priority.subjectId
+                )}
                 rank={index + 1}
-              />
+            />
             ))}
           </div>
 
