@@ -27,10 +27,16 @@ function getWeekStart(timezone = "UTC") {
     day: "2-digit",
   }).formatToParts(new Date());
 
-  const get = (type) => Number(parts.find((p) => p.type === type).value);
-  const date = new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
+  const get = (type) =>
+    Number(parts.find((p) => p.type === type).value);
+
+  const date = new Date(
+    Date.UTC(get("year"), get("month") - 1, get("day"))
+  );
+
   const daysFromMonday = (date.getUTCDay() + 6) % 7;
   date.setUTCDate(date.getUTCDate() - daysFromMonday);
+
   return date.toISOString().slice(0, 10);
 }
 
@@ -43,6 +49,7 @@ async function getProfile(userId) {
      WHERE user_id = $1`,
     [userId]
   );
+
   return rows[0];
 }
 
@@ -66,6 +73,7 @@ async function generatePlan(userId, profile) {
   }
 
   const priorities = await loadPriorities(userId);
+
   if (!priorities.length) {
     return { error: "Add some subjects first" };
   }
@@ -108,18 +116,21 @@ async function generatePlan(userId, profile) {
     return { error: "Invalid planner response", status: 502 };
   }
 
-  const allowedSubjects = new Set(priorities.map((p) => p.subjectId));
+  const allowedSubjects = new Set(
+    priorities.map((p) => p.subjectId)
+  );
 
-  const valid = data.blocks.every((b) =>
-    Number.isInteger(b.weekday) &&
-    b.weekday >= 0 &&
-    b.weekday <= 6 &&
-    Number.isInteger(b.startMin) &&
-    Number.isInteger(b.endMin) &&
-    b.startMin >= 0 &&
-    b.endMin <= 1440 &&
-    b.endMin > b.startMin &&
-    allowedSubjects.has(b.subjectId)
+  const valid = data.blocks.every(
+    (b) =>
+      Number.isInteger(b.weekday) &&
+      b.weekday >= 0 &&
+      b.weekday <= 6 &&
+      Number.isInteger(b.startMin) &&
+      Number.isInteger(b.endMin) &&
+      b.startMin >= 0 &&
+      b.endMin <= 1440 &&
+      b.endMin > b.startMin &&
+      allowedSubjects.has(b.subjectId)
   );
 
   if (!valid) {
@@ -141,121 +152,131 @@ async function generatePlan(userId, profile) {
 }
 
 // GET /api/plan
-router.get("/", asyncHandler(async (req, res) => {
-  const profile = await getProfile(req.session.userId);
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const profile = await getProfile(req.session.userId);
 
-  if (!profile) {
-    return res.status(400).json({
-      error: "Set up your study profile first",
-    });
-  }
-
-  const result = await generatePlan(req.session.userId, profile);
-
-  if (result.error) {
-    return res.status(result.status || 400).json(result);
-  }
-
-  res.json(result);
-}));
-
-// POST /api/plan/save
-router.post("/save", asyncHandler(async (req, res) => {
-  const userId = req.session.userId;
-  const profile = await getProfile(userId);
-
-  if (!profile) {
-    return res.status(400).json({
-      error: "Set up your study profile first",
-    });
-  }
-
-  const result = await generatePlan(userId, profile);
-
-  if (result.error) {
-    return res.status(result.status || 400).json(result);
-  }
-
-  if (!result.blocks.length) {
-    return res.status(422).json({
-      error: "No study sessions could be scheduled",
-    });
-  }
-
-  const weekStart = getWeekStart(profile.timezone || "UTC");
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    await client.query(
-      "SELECT pg_advisory_xact_lock(hashtext($1))",
-      [`${userId}:${weekStart}`]
-    );
-
-    const versionResult = await client.query(
-      `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
-       FROM study_plans
-       WHERE user_id = $1 AND week_start = $2`,
-      [userId, weekStart]
-    );
-
-    const version = Number(versionResult.rows[0].next_version);
-
-    await client.query(
-      `UPDATE study_plans
-       SET status = 'archived', updated_at = NOW()
-       WHERE user_id = $1
-         AND week_start = $2
-         AND status = 'active'`,
-      [userId, weekStart]
-    );
-
-    const planResult = await client.query(
-      `INSERT INTO study_plans
-         (user_id, week_start, version, status)
-       VALUES ($1, $2, $3, 'active')
-       RETURNING id, week_start, version, status`,
-      [userId, weekStart, version]
-    );
-
-    const plan = planResult.rows[0];
-    const sessions = [];
-
-    for (const block of result.blocks) {
-      const sessionResult = await client.query(
-        `INSERT INTO study_sessions
-           (plan_id, subject_id, weekday, start_time, end_time)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, subject_id, weekday,
-                   start_time, end_time, status, actual_minutes`,
-        [
-          plan.id,
-          block.subjectId,
-          block.weekday,
-          block.startTime,
-          block.endTime,
-        ]
-      );
-
-      sessions.push(sessionResult.rows[0]);
+    if (!profile) {
+      return res.status(400).json({
+        error: "Set up your study profile first",
+      });
     }
 
-    await client.query("COMMIT");
+    const result = await generatePlan(
+      req.session.userId,
+      profile
+    );
 
-    return res.status(201).json({
-      message: "Study plan saved successfully",
-      plan,
-      sessions,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}));
+    if (result.error) {
+      return res.status(result.status || 400).json(result);
+    }
 
+    res.json(result);
+  })
+);
+
+// POST /api/plan/save
+router.post(
+  "/save",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
+    const profile = await getProfile(userId);
+
+    if (!profile) {
+      return res.status(400).json({
+        error: "Set up your study profile first",
+      });
+    }
+
+    const result = await generatePlan(userId, profile);
+
+    if (result.error) {
+      return res.status(result.status || 400).json(result);
+    }
+
+    if (!result.blocks.length) {
+      return res.status(422).json({
+        error: "No study sessions could be scheduled",
+      });
+    }
+
+    const weekStart = getWeekStart(profile.timezone || "UTC");
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        [`${userId}:${weekStart}`]
+      );
+
+      const versionResult = await client.query(
+        `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+         FROM study_plans
+         WHERE user_id = $1 AND week_start = $2`,
+        [userId, weekStart]
+      );
+
+      const version = Number(
+        versionResult.rows[0].next_version
+      );
+
+      await client.query(
+        `UPDATE study_plans
+         SET status = 'archived', updated_at = NOW()
+         WHERE user_id = $1
+           AND week_start = $2
+           AND status = 'active'`,
+        [userId, weekStart]
+      );
+
+      const planResult = await client.query(
+        `INSERT INTO study_plans
+           (user_id, week_start, version, status)
+         VALUES ($1, $2, $3, 'active')
+         RETURNING id, week_start, version, status`,
+        [userId, weekStart, version]
+      );
+
+      const plan = planResult.rows[0];
+      const sessions = [];
+
+      for (const block of result.blocks) {
+        const sessionResult = await client.query(
+          `INSERT INTO study_sessions
+             (plan_id, subject_id, weekday, start_time, end_time)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, subject_id, weekday,
+                     start_time, end_time, status, actual_minutes`,
+          [
+            plan.id,
+            block.subjectId,
+            block.weekday,
+            block.startTime,
+            block.endTime,
+          ]
+        );
+
+        sessions.push(sessionResult.rows[0]);
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        message: "Study plan saved successfully",
+        plan,
+        sessions,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
 
 /**
  * POST /api/plan/regenerate/approve
@@ -308,8 +329,7 @@ router.post(
       blocks.map(blockKey).sort().join("\n");
 
     if (
-      signature(previewBlocks) !==
-      signature(result.blocks)
+      signature(previewBlocks) !== signature(result.blocks)
     ) {
       return res.status(409).json({
         error:
@@ -350,6 +370,7 @@ router.post(
         });
       }
 
+      // Preserve the original tracking ID for matched sessions.
       const sessionsResult = await client.query(
         `SELECT id,
                 subject_id AS "subjectId",
@@ -357,7 +378,8 @@ router.post(
                 TO_CHAR(start_time, 'HH24:MI') AS "startTime",
                 TO_CHAR(end_time, 'HH24:MI') AS "endTime",
                 status,
-                actual_minutes AS "actualMinutes"
+                actual_minutes AS "actualMinutes",
+                tracking_id AS "trackingId"
          FROM study_sessions
          WHERE plan_id = $1
          FOR UPDATE`,
@@ -385,6 +407,7 @@ router.post(
         matches.sort((a, b) => {
           const aTracked = a.status !== "planned" ? 1 : 0;
           const bTracked = b.status !== "planned" ? 1 : 0;
+
           return bTracked - aTracked;
         });
       }
@@ -450,6 +473,8 @@ router.post(
         const tracked =
           previous && previous.status !== "planned";
 
+        // Reuse tracking_id for an existing matched session.
+        // A new session receives a new tracking_id.
         const sessionResult = await client.query(
           `INSERT INTO study_sessions
              (
@@ -459,9 +484,13 @@ router.post(
                start_time,
                end_time,
                status,
-               actual_minutes
+               actual_minutes,
+               tracking_id
              )
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           VALUES (
+               $1, $2, $3, $4, $5, $6, $7,
+               COALESCE($8::uuid, gen_random_uuid())
+             )
            RETURNING id,
                      subject_id AS "subjectId",
                      weekday,
@@ -477,6 +506,7 @@ router.post(
             block.endTime,
             tracked ? previous.status : "planned",
             tracked ? previous.actualMinutes : 0,
+            previous?.trackingId ?? null,
           ]
         );
 
@@ -499,176 +529,185 @@ router.post(
   })
 );
 
-
 // GET /api/plan/current
-router.get("/current", asyncHandler(async (req, res) => {
-  const userId = req.session.userId;
-  const profile = await getProfile(userId);
+router.get(
+  "/current",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
+    const profile = await getProfile(userId);
 
-  if (!profile) {
-    return res.status(400).json({
-      error: "Set up your study profile first",
-    });
-  }
-
-  const weekStart = getWeekStart(profile.timezone || "UTC");
-
-  const planResult = await query(
-    `SELECT id, week_start, version, status, created_at
-     FROM study_plans
-     WHERE user_id = $1
-       AND week_start = $2
-       AND status = 'active'
-     LIMIT 1`,
-    [userId, weekStart]
-  );
-
-  if (!planResult.rows.length) {
-    return res.status(404).json({
-      error: "No saved study plan for this week",
-    });
-  }
-
-  const plan = planResult.rows[0];
-
-  const sessionsResult = await query(
-    `SELECT ss.id,
-            ss.subject_id AS "subjectId",
-            s.name AS "subjectName",
-            ss.weekday,
-            TO_CHAR(ss.start_time, 'HH24:MI') AS "startTime",
-            TO_CHAR(ss.end_time, 'HH24:MI') AS "endTime",
-            ss.status,
-            ss.actual_minutes AS "actualMinutes"
-     FROM study_sessions ss
-     JOIN subjects s ON s.id = ss.subject_id
-     WHERE ss.plan_id = $1
-       AND s.user_id = $2
-     ORDER BY ss.weekday, ss.start_time`,
-    [plan.id, userId]
-  );
-
-  res.json({
-    plan,
-    blocks: sessionsResult.rows,
-  });
-}));
-
-// PATCH /api/plan/sessions/:id
-router.patch("/sessions/:id", asyncHandler(async (req, res) => {
-  const userId = req.session.userId;
-  const sessionId = req.params.id;
-  const { status, actualMinutes } = req.body ?? {};
-
-  const validStatuses = [
-    "planned",
-    "completed",
-    "partial",
-    "missed",
-  ];
-
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-    return res.status(400).json({
-      error: "Invalid session ID",
-    });
-  }
-
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({
-      error: "Invalid session status",
-    });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const result = await client.query(
-      `SELECT ss.id,
-              ss.status,
-              FLOOR(EXTRACT(EPOCH FROM
-                (ss.end_time - ss.start_time)) / 60)::int
-                AS scheduled_minutes
-       FROM study_sessions ss
-       JOIN study_plans sp ON sp.id = ss.plan_id
-       WHERE ss.id = $1
-         AND sp.user_id = $2
-         AND sp.status = 'active'
-       FOR UPDATE OF ss`,
-      [sessionId, userId]
-    );
-
-    if (!result.rows.length) {
-      await client.query("ROLLBACK");
-
-      return res.status(404).json({
-        error: "Active study session not found",
+    if (!profile) {
+      return res.status(400).json({
+        error: "Set up your study profile first",
       });
     }
 
-    const session = result.rows[0];
-    const duration = session.scheduled_minutes;
+    const weekStart = getWeekStart(profile.timezone || "UTC");
 
-    let minutes = 0;
+    const planResult = await query(
+      `SELECT id, week_start, version, status, created_at
+       FROM study_plans
+       WHERE user_id = $1
+         AND week_start = $2
+         AND status = 'active'
+       LIMIT 1`,
+      [userId, weekStart]
+    );
 
-    if (status === "completed") {
-      minutes = duration;
+    if (!planResult.rows.length) {
+      return res.status(404).json({
+        error: "No saved study plan for this week",
+      });
     }
 
-    if (status === "partial") {
-      if (
-        !Number.isInteger(actualMinutes) ||
-        actualMinutes <= 0 ||
-        actualMinutes >= duration
-      ) {
+    const plan = planResult.rows[0];
+
+    const sessionsResult = await query(
+      `SELECT ss.id,
+              ss.subject_id AS "subjectId",
+              s.name AS "subjectName",
+              ss.weekday,
+              TO_CHAR(ss.start_time, 'HH24:MI') AS "startTime",
+              TO_CHAR(ss.end_time, 'HH24:MI') AS "endTime",
+              ss.status,
+              ss.actual_minutes AS "actualMinutes"
+       FROM study_sessions ss
+       JOIN subjects s ON s.id = ss.subject_id
+       WHERE ss.plan_id = $1
+         AND s.user_id = $2
+       ORDER BY ss.weekday, ss.start_time`,
+      [plan.id, userId]
+    );
+
+    res.json({
+      plan,
+      blocks: sessionsResult.rows,
+    });
+  })
+);
+
+// PATCH /api/plan/sessions/:id
+router.patch(
+  "/sessions/:id",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
+    const sessionId = req.params.id;
+    const { status, actualMinutes } = req.body ?? {};
+
+    const validStatuses = [
+      "planned",
+      "completed",
+      "partial",
+      "missed",
+    ];
+
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        sessionId
+      )
+    ) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Invalid session status",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query(
+        `SELECT ss.id,
+                ss.status,
+                FLOOR(EXTRACT(EPOCH FROM
+                  (ss.end_time - ss.start_time)) / 60)::int
+                  AS scheduled_minutes
+         FROM study_sessions ss
+         JOIN study_plans sp ON sp.id = ss.plan_id
+         WHERE ss.id = $1
+           AND sp.user_id = $2
+           AND sp.status = 'active'
+         FOR UPDATE OF ss`,
+        [sessionId, userId]
+      );
+
+      if (!result.rows.length) {
         await client.query("ROLLBACK");
 
-        return res.status(400).json({
-          error: "Partial minutes must be greater than zero and less than the session duration",
+        return res.status(404).json({
+          error: "Active study session not found",
         });
       }
 
-      minutes = actualMinutes;
+      const session = result.rows[0];
+      const duration = session.scheduled_minutes;
+
+      let minutes = 0;
+
+      if (status === "completed") {
+        minutes = duration;
+      }
+
+      if (status === "partial") {
+        if (
+          !Number.isInteger(actualMinutes) ||
+          actualMinutes <= 0 ||
+          actualMinutes >= duration
+        ) {
+          await client.query("ROLLBACK");
+
+          return res.status(400).json({
+            error:
+              "Partial minutes must be greater than zero and less than the session duration",
+          });
+        }
+
+        minutes = actualMinutes;
+      }
+
+      const updated = await client.query(
+        `UPDATE study_sessions
+         SET status = $1,
+             actual_minutes = $2,
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING
+           id,
+           plan_id AS "planId",
+           subject_id AS "subjectId",
+           weekday,
+           TO_CHAR(start_time, 'HH24:MI') AS "startTime",
+           TO_CHAR(end_time, 'HH24:MI') AS "endTime",
+           status,
+           actual_minutes AS "actualMinutes",
+           updated_at AS "updatedAt"`,
+        [status, minutes, sessionId]
+      );
+
+      await client.query("COMMIT");
+
+      return res.json({
+        message: "Study session updated successfully",
+        session: {
+          ...updated.rows[0],
+          scheduledMinutes: duration,
+          remainingMinutes: duration - minutes,
+        },
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-
-    const updated = await client.query(
-      `UPDATE study_sessions
-       SET status = $1,
-           actual_minutes = $2,
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING
-         id,
-         plan_id AS "planId",
-         subject_id AS "subjectId",
-         weekday,
-         TO_CHAR(start_time, 'HH24:MI') AS "startTime",
-         TO_CHAR(end_time, 'HH24:MI') AS "endTime",
-         status,
-         actual_minutes AS "actualMinutes",
-         updated_at AS "updatedAt"`,
-      [status, minutes, sessionId]
-    );
-
-    await client.query("COMMIT");
-
-    return res.json({
-      message: "Study session updated successfully",
-      session: {
-        ...updated.rows[0],
-        scheduledMinutes: duration,
-        remainingMinutes: duration - minutes,
-      },
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}));
-
+  })
+);
 
 function recoverySnapshot(sessions, backlog) {
   return JSON.stringify({
@@ -716,7 +755,6 @@ function recoveryRemainingSignature(items) {
     .sort()
     .join("\n");
 }
-
 
 // Phase 3: Recovery preview and apply
 const rescheduleHandler = asyncHandler(async (req, res) => {
@@ -823,40 +861,38 @@ const rescheduleHandler = asyncHandler(async (req, res) => {
     unfinished.set(backlog.subjectId, existing);
   }
 
+  const snapshot = recoverySnapshot(
+    sessions,
+    backlogResult.rows
+  );
 
-const snapshot = recoverySnapshot(
-  sessions,
-  backlogResult.rows
-);
+  const expected = applying ? req.body?.preview : null;
 
-const expected = applying ? req.body?.preview : null;
+  if (applying) {
+    if (
+      !expected ||
+      typeof expected.planId !== "string" ||
+      !Number.isInteger(Number(expected.version)) ||
+      typeof expected.snapshot !== "string" ||
+      !Array.isArray(expected.blocks) ||
+      !Array.isArray(expected.remaining)
+    ) {
+      return res.status(400).json({
+        error: "Generate a recovery preview before applying.",
+      });
+    }
 
-if (applying) {
-  if (
-    !expected ||
-    typeof expected.planId !== "string" ||
-    !Number.isInteger(Number(expected.version)) ||
-    typeof expected.snapshot !== "string" ||
-    !Array.isArray(expected.blocks) ||
-    !Array.isArray(expected.remaining)
-  ) {
-    return res.status(400).json({
-      error: "Generate a recovery preview before applying.",
-    });
+    if (
+      expected.planId !== plan.id ||
+      Number(expected.version) !== Number(plan.version) ||
+      expected.snapshot !== snapshot
+    ) {
+      return res.status(409).json({
+        error:
+          "Your timetable or study progress has changed. Generate a fresh recovery preview.",
+      });
+    }
   }
-
-  if (
-    expected.planId !== plan.id ||
-    Number(expected.version) !== Number(plan.version) ||
-    expected.snapshot !== snapshot
-  ) {
-    return res.status(409).json({
-      error:
-        "Your timetable or study progress has changed. Generate a fresh recovery preview.",
-    });
-  }
-}
-
 
   if (!unfinished.size) {
     return res.json({
@@ -895,11 +931,13 @@ if (applying) {
   const part = (name) =>
     Number(nowParts.find((p) => p.type === name).value);
 
-  const today = new Date(Date.UTC(
-    part("year"),
-    part("month") - 1,
-    part("day")
-  ));
+  const today = new Date(
+    Date.UTC(
+      part("year"),
+      part("month") - 1,
+      part("day")
+    )
+  );
 
   const currentWeekday =
     (today.getUTCDay() + 6) % 7;
@@ -924,9 +962,10 @@ if (applying) {
     .filter((w) => w.weekday >= currentWeekday)
     .map((w) => ({
       weekday: w.weekday,
-      startMin: w.weekday === currentWeekday
-        ? Math.max(toMinutes(w.start_time), nextSlot)
-        : toMinutes(w.start_time),
+      startMin:
+        w.weekday === currentWeekday
+          ? Math.max(toMinutes(w.start_time), nextSlot)
+          : toMinutes(w.start_time),
       endMin: toMinutes(w.end_time),
     }))
     .filter((w) => w.endMin > w.startMin);
@@ -1013,38 +1052,43 @@ if (applying) {
   let valid = true;
 
   for (const b of result.blocks) {
-    if (!(
-      Number.isInteger(b.weekday) &&
-      b.weekday >= 0 &&
-      b.weekday <= 6 &&
-      Number.isInteger(b.startMin) &&
-      Number.isInteger(b.endMin) &&
-      b.startMin >= 0 &&
-      b.endMin <= 1440 &&
-      b.endMin > b.startMin &&
-      (b.endMin - b.startMin) % 15 === 0 &&
-      subjectIds.has(b.subjectId)
-    )) {
+    if (
+      !(
+        Number.isInteger(b.weekday) &&
+        b.weekday >= 0 &&
+        b.weekday <= 6 &&
+        Number.isInteger(b.startMin) &&
+        Number.isInteger(b.endMin) &&
+        b.startMin >= 0 &&
+        b.endMin <= 1440 &&
+        b.endMin > b.startMin &&
+        (b.endMin - b.startMin) % 15 === 0 &&
+        subjectIds.has(b.subjectId)
+      )
+    ) {
       valid = false;
       break;
     }
 
-    const inFreeWindow = freeWindows.some((w) =>
-      w.weekday === b.weekday &&
-      b.startMin >= w.startMin &&
-      b.endMin <= w.endMin
+    const inFreeWindow = freeWindows.some(
+      (w) =>
+        w.weekday === b.weekday &&
+        b.startMin >= w.startMin &&
+        b.endMin <= w.endMin
     );
 
-    const overlapsExisting = blockedWindows.some((w) =>
-      w.weekday === b.weekday &&
-      b.startMin < w.endMin &&
-      b.endMin > w.startMin
+    const overlapsExisting = blockedWindows.some(
+      (w) =>
+        w.weekday === b.weekday &&
+        b.startMin < w.endMin &&
+        b.endMin > w.startMin
     );
 
-    const overlapsProposed = proposed.some((p) =>
-      p.weekday === b.weekday &&
-      b.startMin < p.endMin &&
-      b.endMin > p.startMin
+    const overlapsProposed = proposed.some(
+      (p) =>
+        p.weekday === b.weekday &&
+        b.startMin < p.endMin &&
+        b.endMin > p.startMin
     );
 
     if (
@@ -1094,34 +1138,32 @@ if (applying) {
     ).name,
   }));
 
+  // Read-only preview.
+  if (!applying) {
+    return res.json({
+      message: "Recovery timetable preview generated",
+      planId: plan.id,
+      version: plan.version,
+      snapshot,
+      previewOnly: true,
+      blocks,
+      remaining,
+    });
+  }
 
-// Read-only preview.
-if (!applying) {
-  return res.json({
-    message: "Recovery timetable preview generated",
-    planId: plan.id,
-    version: plan.version,
-    snapshot,
-    previewOnly: true,
-    blocks,
-    remaining,
-  });
-}
-
-// Ensure the user approves the exact timetable
-// and remaining workload returned by the preview.
-if (
-  recoveryBlockSignature(expected.blocks) !==
-    recoveryBlockSignature(blocks) ||
-  recoveryRemainingSignature(expected.remaining) !==
-    recoveryRemainingSignature(remaining)
-) {
-  return res.status(409).json({
-    error:
-      "The proposed recovery timetable has changed. Generate a fresh preview.",
-  });
-}
-
+  // Ensure the user approves the exact timetable
+  // and remaining workload returned by the preview.
+  if (
+    recoveryBlockSignature(expected.blocks) !==
+      recoveryBlockSignature(blocks) ||
+    recoveryRemainingSignature(expected.remaining) !==
+      recoveryRemainingSignature(remaining)
+  ) {
+    return res.status(409).json({
+      error:
+        "The proposed recovery timetable has changed. Generate a fresh preview.",
+    });
+  }
 
   const outstanding = remaining.reduce(
     (total, s) => total + s.unscheduledMin,
@@ -1182,14 +1224,14 @@ if (
       [plan.id]
     );
 
-    const snapshot = new Map(
+    const sessionSnapshot = new Map(
       sessions.map((s) => [s.id, s])
     );
 
     const unchanged =
       lockedSessions.rows.length === sessions.length &&
       lockedSessions.rows.every((s) => {
-        const old = snapshot.get(s.id);
+        const old = sessionSnapshot.get(s.id);
 
         return (
           old &&
@@ -1226,10 +1268,11 @@ if (
 
     const backlogUnchanged =
       lockedBacklog.rows.length === backlogSnapshot.size &&
-      lockedBacklog.rows.every((b) =>
-        backlogSnapshot.has(b.subjectId) &&
-        Number(b.remainingMin) ===
-          backlogSnapshot.get(b.subjectId)
+      lockedBacklog.rows.every(
+        (b) =>
+          backlogSnapshot.has(b.subjectId) &&
+          Number(b.remainingMin) ===
+            backlogSnapshot.get(b.subjectId)
       );
 
     if (!backlogUnchanged) {
@@ -1240,23 +1283,21 @@ if (
       });
     }
 
+    // Compare locked database records against
+    // the originally approved preview.
+    if (
+      recoverySnapshot(
+        lockedSessions.rows,
+        lockedBacklog.rows
+      ) !== expected.snapshot
+    ) {
+      await client.query("ROLLBACK");
 
-// Compare locked database records against the
-// originally approved preview as well.
-if (
-  recoverySnapshot(
-    lockedSessions.rows,
-    lockedBacklog.rows
-  ) !== expected.snapshot
-) {
-  await client.query("ROLLBACK");
-
-  return res.status(409).json({
-    error:
-      "Study progress changed after the preview. Generate a fresh recovery plan.",
-  });
-}
-
+      return res.status(409).json({
+        error:
+          "Study progress changed after the preview. Generate a fresh recovery plan.",
+      });
+    }
 
     const nextVersionResult = await client.query(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
@@ -1289,13 +1330,16 @@ if (
 
     const newPlan = newPlanResult.rows[0];
 
-    // Carry forward existing planned/completed sessions.
+    // Carry forward existing planned/completed sessions,
+    // preserving their original tracking IDs.
     await client.query(
       `INSERT INTO study_sessions
          (plan_id, subject_id, weekday,
-          start_time, end_time, status, actual_minutes)
+          start_time, end_time, status, actual_minutes,
+          tracking_id)
        SELECT $1, subject_id, weekday,
-              start_time, end_time, status, actual_minutes
+              start_time, end_time, status, actual_minutes,
+              tracking_id
        FROM study_sessions
        WHERE plan_id = $2
          AND status IN ('planned', 'completed')`,
@@ -1303,6 +1347,7 @@ if (
     );
 
     // Save newly scheduled recovery sessions.
+    // PostgreSQL assigns new tracking IDs automatically.
     for (const b of blocks) {
       await client.query(
         `INSERT INTO study_sessions
