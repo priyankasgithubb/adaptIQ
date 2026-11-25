@@ -7,6 +7,7 @@ import PlanRegeneration from "./PlanRegeneration";
 import AdaptiveRecovery from "./AdaptiveRecovery";
 import StudentAnalytics from "./StudentAnalytics";
 import AdaptiveQuiz from "./AdaptiveQuiz";
+import SpacedRepetition from "./SpacedRepetition";
 
 const DAYS = [
   "Monday",
@@ -516,6 +517,18 @@ if (activeView === "quizzes") {
 }
 
 
+if (activeView === "reviews") {
+  return (
+    <SpacedRepetition
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+    />
+  );
+}
+
+
 
   return (
     <div className="min-h-screen bg-cream text-espresso">
@@ -575,6 +588,13 @@ if (activeView === "quizzes") {
           </button>
 
 
+          <button
+          type="button"
+            onClick={() => setActiveView("reviews")}
+            className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+        >
+            Spaced Repetition
+          </button>
 
             <button
                 type="button"

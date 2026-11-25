@@ -1,5 +1,5 @@
-
 import { useCallback, useEffect, useState } from "react";
+import QuizReviewAction from "./QuizReviewAction";
 
 function percentage(value) {
   const number = Number(value);
@@ -318,6 +318,13 @@ export default function QuizInsights({ refreshKey = 0 }) {
                         <p className="mt-4 text-sm leading-6 text-[#785B50]">
                           {topic.recommendation}
                         </p>
+
+                        <QuizReviewAction
+                            subjectId={topic.subjectId}
+                            subjectName={topic.subjectName}
+                            topic={topic.topic}
+                            accuracyPercent={topic.accuracyPercent}
+                        />
                       </div>
                     ))}
                   </div>
