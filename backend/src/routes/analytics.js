@@ -1,657 +1,417 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { Router } from "express";
+import { query } from "../lib/db.js";
+import { asyncHandler } from "../lib/asyncHandler.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
-function formatDuration(minutes) {
-  const total = Math.max(0, Math.floor(Number(minutes) || 0));
-  const hours = Math.floor(total / 60);
-  const remaining = total % 60;
+const router = Router();
 
-  if (!hours) return `${remaining}m`;
-  if (!remaining) return `${hours}h`;
+router.use(requireAuth);
 
-  return `${hours}h ${remaining}m`;
+function toMinutes(value) {
+  if (!value) return 0;
+
+  const [hours, minutes] = String(value)
+    .slice(0, 5)
+    .split(":")
+    .map(Number);
+
+  return hours * 60 + minutes;
 }
 
-function StatCard({ label, value, description }) {
-  return (
-    <div className="rounded-[20px] border border-[#E9DFD5] bg-white p-5">
-      <p className="text-xs font-medium text-muted">{label}</p>
-
-      <p className="mt-3 text-3xl font-semibold tracking-tight text-espresso">
-        {value}
-      </p>
-
-      <p className="mt-2 text-xs text-muted">{description}</p>
-    </div>
+function sessionDuration(session) {
+  return Math.max(
+    0,
+    toMinutes(session.endTime) -
+      toMinutes(session.startTime)
   );
 }
 
-function ProgressBar({ value, max, color = "bg-coral" }) {
-  const percentage =
-    max > 0
-      ? Math.max(0, Math.min(100, (value / max) * 100))
+function createSummary(weekStart) {
+  return {
+    weekStart,
+    plannedMinutes: 0,
+    completedMinutes: 0,
+    plannedSessions: 0,
+    completedSessions: 0,
+    partialSessions: 0,
+    missedSessions: 0,
+    adherencePercent: 0,
+  };
+}
+
+function finalizeSummary(summary) {
+  summary.adherencePercent =
+    summary.plannedMinutes > 0
+      ? Math.round(
+          Math.min(
+            100,
+            (summary.completedMinutes /
+              summary.plannedMinutes) *
+              100
+          )
+        )
       : 0;
 
-  return (
-    <div className="h-3 overflow-hidden rounded-full bg-[#F0E7DF]">
-      <div
-        className={`h-full rounded-full ${color}`}
-        style={{ width: `${percentage}%` }}
-      />
-    </div>
-  );
+  return summary;
 }
 
-function WeeklyChart({ weeks }) {
-  const sorted = [...weeks].sort((a, b) =>
-    a.weekStart.localeCompare(b.weekStart)
-  );
+// GET /api/analytics/overview
+router.get(
+  "/overview",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
 
-  const maxMinutes = Math.max(
-    60,
-    ...sorted.map((week) => Number(week.plannedMinutes) || 0)
-  );
-
-  if (!sorted.length) {
-    return (
-      <p className="py-10 text-center text-sm text-muted">
-        No weekly study data available yet.
-      </p>
+    // Determine the current week in the
+    // student's configured timezone.
+    const weekResult = await query(
+      `SELECT
+         date_trunc(
+           'week',
+           NOW() AT TIME ZONE COALESCE(
+             (
+               SELECT timezone
+               FROM learner_profiles
+               WHERE user_id = $1
+             ),
+             'UTC'
+           )
+         )::date::text AS "weekStart"`,
+      [userId]
     );
-  }
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap gap-5 text-xs text-muted">
-        <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded bg-[#E8D5C8]" />
-          Planned
-        </div>
+    const currentWeekStart =
+      weekResult.rows[0].weekStart;
 
-        <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded bg-coral" />
-          Completed
-        </div>
-      </div>
-
-      <div className="overflow-x-auto pb-2">
-        <div className="flex min-w-[420px] items-end gap-4">
-          {sorted.map((week) => {
-            const planned = Number(week.plannedMinutes) || 0;
-            const completed = Number(week.completedMinutes) || 0;
-
-            const plannedHeight = (planned / maxMinutes) * 170;
-            const completedHeight = (completed / maxMinutes) * 170;
-
-            return (
-              <div
-                key={week.weekStart}
-                className="min-w-0 flex-1 text-center"
-              >
-                <div className="flex h-[180px] items-end justify-center gap-1.5">
-                  <div
-                    title={`Planned: ${formatDuration(planned)}`}
-                    className="w-5 rounded-t-md bg-[#E8D5C8]"
-                    style={{ height: `${plannedHeight}px` }}
-                  />
-
-                  <div
-                    title={`Completed: ${formatDuration(completed)}`}
-                    className="w-5 rounded-t-md bg-coral"
-                    style={{ height: `${completedHeight}px` }}
-                  />
-                </div>
-
-                <p className="mt-3 text-[11px] font-medium text-espresso">
-                  {week.weekStart.slice(5)}
-                </p>
-
-                <p className="mt-1 text-[10px] text-muted">
-                  {week.adherencePercent}%
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <p className="text-xs text-muted">
-        Dates represent the start of each recorded study week.
-        Bars show scheduled versus recorded minutes.
-      </p>
-    </div>
-  );
-}
-
-function SubjectBreakdown({ subjects }) {
-  if (!subjects.length) {
-    return (
-      <p className="py-8 text-sm text-muted">
-        No subjects are included in this week's active timetable.
-      </p>
+    // Read up to eight active weekly plans.
+    // Archived versions are excluded to avoid
+    // double-counting copied study sessions.
+    const result = await query(
+      `SELECT
+         p.id AS "planId",
+         p.week_start::text AS "weekStart",
+         p.version,
+         ss.id AS "sessionId",
+         ss.subject_id AS "subjectId",
+         s.name AS "subjectName",
+         ss.weekday,
+         TO_CHAR(
+           ss.start_time, 'HH24:MI'
+         ) AS "startTime",
+         TO_CHAR(
+           ss.end_time, 'HH24:MI'
+         ) AS "endTime",
+         ss.status,
+         ss.actual_minutes AS "actualMinutes"
+       FROM (
+         SELECT id, week_start, version
+         FROM study_plans
+         WHERE user_id = $1
+           AND status = 'active'
+         ORDER BY week_start DESC
+         LIMIT 8
+       ) p
+       LEFT JOIN study_sessions ss
+         ON ss.plan_id = p.id
+       LEFT JOIN subjects s
+         ON s.id = ss.subject_id
+       ORDER BY
+         p.week_start DESC,
+         ss.weekday,
+         ss.start_time`,
+      [userId]
     );
-  }
 
-  return (
-    <div className="space-y-6">
-      {subjects.map((subject) => {
-        const planned = Number(subject.plannedMinutes) || 0;
-        const completed = Number(subject.completedMinutes) || 0;
+    const weeklyMap = new Map();
+    const subjectMap = new Map();
 
-        return (
-          <div key={subject.subjectId}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-espresso">
-                {subject.subjectName}
-              </p>
+    let currentPlanVersion = null;
 
-              <p className="text-xs text-muted">
-                {formatDuration(completed)} / {formatDuration(planned)}
-              </p>
-            </div>
+    for (const session of result.rows) {
+      const weekStart = session.weekStart;
 
-            <ProgressBar
-              value={completed}
-              max={planned}
-            />
-
-            <p className="mt-2 text-xs text-muted">
-              {subject.sessionCount} scheduled sessions
-            </p>
-          </div>
+      if (!weeklyMap.has(weekStart)) {
+        weeklyMap.set(
+          weekStart,
+          createSummary(weekStart)
         );
-      })}
-    </div>
-  );
-}
+      }
 
-export default function StudentAnalytics({ onBack }) {
-  const [data, setData] = useState(null);
-  const [mlStatus, setMlStatus] = useState(null);
-  const [mlLoading, setMlLoading] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+      const week = weeklyMap.get(weekStart);
 
-  // Phase 6.1: Historical analytics.
-  const [history, setHistory] = useState(null);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [historyError, setHistoryError] = useState("");
+      if (weekStart === currentWeekStart) {
+        currentPlanVersion = session.version;
+      }
 
-  useEffect(() => {
-    let active = true;
+      // LEFT JOIN returns a row even when a
+      // weekly plan has no sessions.
+      if (!session.sessionId) {
+        continue;
+      }
 
-    async function loadAnalytics() {
-      try {
-        const response = await fetch(
-          "/api/analytics/overview",
-          { credentials: "include" }
-        );
+      const planned = sessionDuration(session);
 
-        const result = await response.json();
+      // Only recorded study time counts as
+      // completed work.
+      const completed = Math.min(
+        planned,
+        Math.max(
+          0,
+          Number(session.actualMinutes || 0)
+        )
+      );
 
-        if (!response.ok) {
-          throw new Error(
-            result.error || "Unable to load analytics."
-          );
+      week.plannedMinutes += planned;
+      week.completedMinutes += completed;
+      week.plannedSessions += 1;
+
+      if (session.status === "completed") {
+        week.completedSessions += 1;
+      }
+
+      if (session.status === "partial") {
+        week.partialSessions += 1;
+      }
+
+      if (session.status === "missed") {
+        week.missedSessions += 1;
+      }
+
+      // Subject breakdown for the current week.
+      if (weekStart === currentWeekStart) {
+        const subjectId = session.subjectId;
+
+        if (!subjectMap.has(subjectId)) {
+          subjectMap.set(subjectId, {
+            subjectId,
+            subjectName: session.subjectName,
+            plannedMinutes: 0,
+            completedMinutes: 0,
+            sessionCount: 0,
+          });
         }
 
-        if (active) {
-          setData(result);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err.message);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+        const subject = subjectMap.get(subjectId);
+
+        subject.plannedMinutes += planned;
+        subject.completedMinutes += completed;
+        subject.sessionCount += 1;
       }
     }
 
-    loadAnalytics();
+    const weeklyTrends = Array.from(
+      weeklyMap.values()
+    )
+      .map(finalizeSummary)
+      .sort((a, b) =>
+        a.weekStart.localeCompare(b.weekStart)
+      );
 
-    return () => {
-      active = false;
+    const overview =
+      weeklyMap.get(currentWeekStart) ||
+      createSummary(currentWeekStart);
+
+    finalizeSummary(overview);
+
+    const subjectBreakdown = Array.from(
+      subjectMap.values()
+    ).sort(
+      (a, b) =>
+        b.completedMinutes - a.completedMinutes
+    );
+
+    return res.json({
+      weekStart: currentWeekStart,
+      planVersion: currentPlanVersion,
+      overview,
+      subjectBreakdown,
+      weeklyTrends,
+      methodology: {
+        scope: "active_plan_versions",
+        includesArchivedSessions: false,
+        completedTime:
+          "Recorded actual minutes on active-plan sessions",
+        adherence:
+          "Recorded minutes divided by scheduled minutes, capped at 100%",
+        limitation:
+          "Superseded sessions in archived timetable versions are excluded. Historical recorded work may therefore be understated after regeneration or recovery.",
+      },
+    });
+  })
+);
+
+// GET /api/analytics/history
+// Historical activity across timetable versions.
+//
+// Use the latest version of each tracking ID
+// so copied study sessions aren't counted twice.
+router.get(
+  "/history",
+  asyncHandler(async (req, res) => {
+    const userId = req.session.userId;
+
+    const result = await query(
+      `WITH recent_weeks AS (
+         SELECT DISTINCT week_start
+         FROM study_plans
+         WHERE user_id = $1
+         ORDER BY week_start DESC
+         LIMIT 8
+       ),
+       unique_sessions AS (
+         SELECT DISTINCT ON (
+           sp.week_start,
+           ss.tracking_id
+         )
+           sp.week_start::text AS "weekStart",
+           sp.version,
+           ss.id AS "sessionId",
+           ss.tracking_id AS "trackingId",
+           ss.subject_id AS "subjectId",
+           s.name AS "subjectName",
+           ss.status,
+           ss.actual_minutes AS "actualMinutes",
+           TO_CHAR(
+             ss.start_time, 'HH24:MI'
+           ) AS "startTime",
+           TO_CHAR(
+             ss.end_time, 'HH24:MI'
+           ) AS "endTime"
+         FROM study_sessions ss
+         JOIN study_plans sp
+           ON sp.id = ss.plan_id
+         JOIN subjects s
+           ON s.id = ss.subject_id
+         JOIN recent_weeks rw
+           ON rw.week_start = sp.week_start
+         WHERE sp.user_id = $1
+           AND s.user_id = $1
+         ORDER BY
+           sp.week_start,
+           ss.tracking_id,
+           sp.version DESC,
+           ss.updated_at DESC,
+           ss.id DESC
+       )
+       SELECT *
+       FROM unique_sessions
+       ORDER BY "weekStart", "subjectName"`,
+      [userId]
+    );
+
+    const weeklyMap = new Map();
+    const subjectMap = new Map();
+
+    const totals = {
+      plannedMinutes: 0,
+      completedMinutes: 0,
+      sessions: 0,
+      completedSessions: 0,
+      partialSessions: 0,
+      missedSessions: 0,
     };
-  }, []);
 
-  useEffect(() => {
-    let active = true;
+    for (const session of result.rows) {
+      const weekStart = session.weekStart;
 
-    async function loadMLStatus() {
-      try {
-        const response = await fetch("/api/ml/status", {
-          credentials: "include",
+      if (!weeklyMap.has(weekStart)) {
+        weeklyMap.set(
+          weekStart,
+          createSummary(weekStart)
+        );
+      }
+
+      const week = weeklyMap.get(weekStart);
+
+      const planned = sessionDuration(session);
+
+      const completed = Math.min(
+        planned,
+        Math.max(
+          0,
+          Number(session.actualMinutes || 0)
+        )
+      );
+
+      // Count each logical session once per week.
+      week.plannedMinutes += planned;
+      week.completedMinutes += completed;
+      week.plannedSessions += 1;
+
+      totals.plannedMinutes += planned;
+      totals.completedMinutes += completed;
+      totals.sessions += 1;
+
+      if (session.status === "completed") {
+        week.completedSessions += 1;
+        totals.completedSessions += 1;
+      }
+
+      if (session.status === "partial") {
+        week.partialSessions += 1;
+        totals.partialSessions += 1;
+      }
+
+      if (session.status === "missed") {
+        week.missedSessions += 1;
+        totals.missedSessions += 1;
+      }
+
+      const subjectId = session.subjectId;
+
+      if (!subjectMap.has(subjectId)) {
+        subjectMap.set(subjectId, {
+          subjectId,
+          subjectName: session.subjectName,
+          plannedMinutes: 0,
+          completedMinutes: 0,
+          sessionCount: 0,
         });
-
-        if (!response.ok) {
-          throw new Error("ML status unavailable");
-        }
-
-        const result = await response.json();
-
-        if (active) {
-          setMlStatus(result);
-        }
-      } catch {
-        if (active) {
-          setMlStatus(null);
-        }
-      } finally {
-        if (active) {
-          setMlLoading(false);
-        }
       }
+
+      const subject = subjectMap.get(subjectId);
+
+      subject.plannedMinutes += planned;
+      subject.completedMinutes += completed;
+      subject.sessionCount += 1;
     }
 
-    loadMLStatus();
+    const weeklyTrends = Array.from(
+      weeklyMap.values()
+    )
+      .map(finalizeSummary)
+      .sort((a, b) =>
+        a.weekStart.localeCompare(b.weekStart)
+      );
 
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Phase 6.1: Load historical study activity separately.
-  useEffect(() => {
-    let active = true;
-
-    async function loadHistory() {
-      try {
-        const response = await fetch(
-          "/api/analytics/history",
-          { credentials: "include" }
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            result.error || "Unable to load historical analytics."
-          );
-        }
-
-        if (active) {
-          setHistory(result);
-        }
-      } catch (err) {
-        if (active) {
-          setHistoryError(err.message);
-        }
-      } finally {
-        if (active) {
-          setHistoryLoading(false);
-        }
-      }
-    }
-
-    loadHistory();
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const overview = data?.overview;
-
-  const totalRecordedSessions = useMemo(() => {
-    if (!overview) return 0;
-
-    return (
-      Number(overview.completedSessions || 0) +
-      Number(overview.partialSessions || 0) +
-      Number(overview.missedSessions || 0)
+    const subjectBreakdown = Array.from(
+      subjectMap.values()
+    ).sort(
+      (a, b) =>
+        b.completedMinutes - a.completedMinutes
     );
-  }, [overview]);
 
-  return (
-    <div className="min-h-screen bg-cream px-5 py-8 text-espresso sm:px-10">
-      <main className="mx-auto max-w-6xl">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="text-2xl font-bold tracking-[-0.06em]">
-            adapt<span className="text-coral">IQ</span>
-          </div>
+    return res.json({
+      totals,
+      weeklyTrends,
+      subjectBreakdown,
+      methodology: {
+        scope: "latest_session_per_tracking_id",
+        maximumWeeks: 8,
+        includesArchivedSessions: true,
+        deduplication:
+          "Each tracking ID is counted once per week, using its latest timetable version.",
+        completedTime:
+          "Recorded actual study minutes from the latest record of each tracked session.",
+        limitations: [
+          "Records created before migration 007 may have different tracking IDs even when they represent the same session.",
+          "These totals describe recorded study activity and cannot independently verify that studying occurred.",
+          "The latest recorded status is used when a tracked session has changed across timetable versions.",
+          "Historical totals may be inaccurate for legacy records whose copies cannot be identified.",
+        ],
+      },
+    });
+  })
+);
 
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-xl border border-[#DED5CD] bg-white px-5 py-3 text-sm font-semibold transition hover:bg-sand"
-          >
-            Back to overview
-          </button>
-        </div>
-
-        <div className="mt-12">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#B47763]">
-            STUDY ANALYTICS
-          </p>
-
-          <h1 className="mt-4 text-4xl font-semibold tracking-[-0.06em] sm:text-5xl">
-            Your progress,{" "}
-            <span className="font-serif italic text-[#C77761]">
-              in perspective.
-            </span>
-          </h1>
-
-          <p className="mt-5 max-w-2xl text-sm leading-7 text-muted">
-            Understand how your planned study sessions compare
-            with the time you've actually completed.
-            Track your consistency and see how you're
-            distributing your study time across subjects.
-          </p>
-        </div>
-
-        {loading && (
-          <p role="status" className="mt-10 text-sm text-muted">
-            Loading your study analytics...
-          </p>
-        )}
-
-        {error && (
-          <div
-            role="alert"
-            className="mt-8 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-          >
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && data && (
-          <>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-[#F2E4D9] px-4 py-2 text-xs font-semibold text-[#A36752]">
-                Week of {data.weekStart}
-              </span>
-
-              {data.planVersion != null && (
-                <span className="rounded-full border border-[#E9DFD5] px-4 py-2 text-xs text-muted">
-                  Timetable v{data.planVersion}
-                </span>
-              )}
-            </div>
-
-            <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                label="Planned study time"
-                value={formatDuration(overview.plannedMinutes)}
-                description="Scheduled in your active weekly plan"
-              />
-
-              <StatCard
-                label="Completed study time"
-                value={formatDuration(overview.completedMinutes)}
-                description="Actual minutes recorded in the active plan"
-              />
-
-              <StatCard
-                label="Study adherence"
-                value={`${overview.adherencePercent}%`}
-                description="Recorded time compared with planned time"
-              />
-
-              <StatCard
-                label="Updated sessions"
-                value={totalRecordedSessions}
-                description="Completed, partial, or missed"
-              />
-            </section>
-
-            <div className="mt-8 grid gap-6 lg:grid-cols-2">
-              <section className="rounded-[22px] border border-[#E8DED5] bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-semibold">
-                  Weekly study trends
-                </h2>
-
-                <p className="mb-7 mt-2 text-sm text-muted">
-                  Study time across your recorded weekly plans.
-                </p>
-
-                <WeeklyChart weeks={data.weeklyTrends || []} />
-              </section>
-
-              <section className="rounded-[22px] border border-[#E8DED5] bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-semibold">
-                  Study time by subject
-                </h2>
-
-                <p className="mb-7 mt-2 text-sm text-muted">
-                  Your planned and completed study time this week.
-                </p>
-
-                <SubjectBreakdown
-                  subjects={data.subjectBreakdown || []}
-                />
-              </section>
-            </div>
-
-            <section className="mt-6 rounded-[22px] border border-[#E8DED5] bg-white p-6 sm:p-8">
-              <h2 className="text-xl font-semibold">
-                Session progress
-              </h2>
-
-              <p className="mt-2 text-sm text-muted">
-                Status breakdown for the active weekly timetable.
-              </p>
-
-              <div className="mt-7 grid gap-4 sm:grid-cols-3">
-                <StatCard
-                  label="Completed"
-                  value={overview.completedSessions}
-                  description="Sessions marked as completed"
-                />
-
-                <StatCard
-                  label="Partially completed"
-                  value={overview.partialSessions}
-                  description="Sessions with unfinished study time"
-                />
-
-                <StatCard
-                  label="Missed"
-                  value={overview.missedSessions}
-                  description="Sessions marked as missed"
-                />
-              </div>
-            </section>
-
-            {/* Phase 6.1: Historical study progress */}
-            <section className="mt-6 rounded-[22px] border border-[#E8DED5] bg-white p-6 sm:p-8">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#B47763]">
-                STUDY HISTORY
-              </p>
-
-              <h2 className="mt-3 text-xl font-semibold text-espresso">
-                Historical study progress
-              </h2>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-                Review your recorded study activity across
-                current and archived timetable versions.
-                Sessions with matching tracking IDs are
-                counted once per week.
-              </p>
-
-              {historyLoading && (
-                <p
-                  role="status"
-                  className="mt-6 text-sm text-muted"
-                >
-                  Loading your study history...
-                </p>
-              )}
-
-              {!historyLoading && historyError && (
-                <div
-                  role="alert"
-                  className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-                >
-                  {historyError}
-                </div>
-              )}
-
-              {!historyLoading && !historyError && history && (
-                <>
-                  <div className="mt-7 grid gap-4 sm:grid-cols-3">
-                    <StatCard
-                      label="Historical planned time"
-                      value={formatDuration(
-                        history.totals?.plannedMinutes
-                      )}
-                      description="Scheduled minutes across the available study history"
-                    />
-
-                    <StatCard
-                      label="Historical recorded time"
-                      value={formatDuration(
-                        history.totals?.completedMinutes
-                      )}
-                      description="Recorded study minutes across timetable versions"
-                    />
-
-                    <StatCard
-                      label="Historical sessions"
-                      value={history.totals?.sessions ?? 0}
-                      description="Distinct tracked sessions in the available history"
-                    />
-                  </div>
-
-                  <div className="mt-7 grid gap-6 lg:grid-cols-2">
-                    <div className="rounded-[20px] bg-[#FCF8F4] p-5 sm:p-6">
-                      <h3 className="text-base font-semibold text-espresso">
-                        Historical weekly trends
-                      </h3>
-
-                      <p className="mb-6 mt-2 text-xs leading-5 text-muted">
-                        Scheduled and recorded study minutes
-                        across up to eight study weeks.
-                      </p>
-
-                      <WeeklyChart
-                        weeks={history.weeklyTrends || []}
-                      />
-                    </div>
-
-                    <div className="rounded-[20px] bg-[#FCF8F4] p-5 sm:p-6">
-                      <h3 className="text-base font-semibold text-espresso">
-                        Historical progress by subject
-                      </h3>
-
-                      <p className="mb-6 mt-2 text-xs leading-5 text-muted">
-                        Recorded activity for each subject
-                        across the available study history.
-                      </p>
-
-                      {(history.subjectBreakdown || []).length > 0 ? (
-                        <SubjectBreakdown
-                          subjects={history.subjectBreakdown}
-                        />
-                      ) : (
-                        <p className="py-8 text-sm text-muted">
-                          No historical subject activity available yet.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <p className="mt-6 text-xs leading-6 text-muted">
-                    Historical results include archived and active
-                    timetable versions. Matching tracking IDs
-                    are deduplicated within each week.
-                    Sessions copied before tracking IDs were
-                    introduced may still be counted separately,
-                    so older totals may be inaccurate.
-                  </p>
-                </>
-              )}
-            </section>
-
-            <section className="mt-6 rounded-[22px] border border-[#E8DED5] bg-white p-6 sm:p-8">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#B47763]">
-                MACHINE LEARNING
-              </p>
-
-              <h2 className="mt-3 text-xl font-semibold text-espresso">
-                Academic performance predictions
-              </h2>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-                AdaptIQ is developing prediction models to estimate
-                future assessment performance using academic history
-                and study activity.
-              </p>
-
-              <div className="mt-6 rounded-xl bg-[#FCF8F4] p-5">
-                {mlLoading ? (
-                  <p role="status" className="text-sm text-muted">
-                    Checking prediction availability...
-                  </p>
-                ) : mlStatus ? (
-                  <>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-espresso">
-                        Prediction service
-                      </p>
-
-                      <span className="rounded-full bg-[#F5E4D7] px-3 py-1.5 text-xs font-semibold text-[#A36752]">
-                        {mlStatus.available
-                          ? "Service reports available"
-                          : "Not yet available"}
-                      </span>
-                    </div>
-
-                    <p className="mt-3 text-sm leading-6 text-muted">
-                      {mlStatus.message}
-                    </p>
-
-                    <p className="mt-4 text-xs text-muted">
-                      Validation status:{" "}
-                      <span className="font-semibold text-espresso">
-                        {mlStatus.validation === "synthetic_only"
-                          ? "Synthetic data only"
-                          : mlStatus.validation || "Unknown"}
-                      </span>
-                    </p>
-
-                    <p className="mt-2 text-xs text-muted">
-                      Models:{" "}
-                      {Array.isArray(mlStatus.models)
-                        ? mlStatus.models
-                            .map((model) =>
-                              model.replaceAll("_", " ")
-                            )
-                            .join(", ")
-                        : "Unavailable"}
-                    </p>
-
-                    {mlStatus.validation === "synthetic_only" && (
-                      <p className="mt-4 text-xs leading-5 text-[#A36752]">
-                        Predictions are disabled until a model has
-                        been evaluated using suitable real historical
-                        student data.
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-muted">
-                    Prediction service status could not be retrieved.
-                    Study analytics are still available.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <p className="mb-8 mt-6 text-xs leading-6 text-muted">
-              Current-week overview statistics include active
-              timetable versions only. The historical study
-              progress section also includes archived versions
-              and deduplicates records with matching tracking
-              IDs. Older copied sessions may not be linked
-              reliably. These are recorded study activity metrics,
-              not predictions of academic performance.
-            </p>
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
+export default router;

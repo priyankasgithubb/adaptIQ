@@ -6,6 +6,7 @@ import ManageProfile from "./ManageProfile";
 import PlanRegeneration from "./PlanRegeneration";
 import AdaptiveRecovery from "./AdaptiveRecovery";
 import StudentAnalytics from "./StudentAnalytics";
+import AdaptiveQuiz from "./AdaptiveQuiz";
 
 const DAYS = [
   "Monday",
@@ -503,6 +504,19 @@ if (activeView === "analytics") {
 }
 
 
+if (activeView === "quizzes") {
+  return (
+    <AdaptiveQuiz
+      onBack={() => {
+        setActiveView("overview");
+        loadDashboard();
+      }}
+    />
+  );
+}
+
+
+
   return (
     <div className="min-h-screen bg-cream text-espresso">
       <header className="border-b border-[#E9DFD5] bg-[#FFFCF9]">
@@ -550,6 +564,16 @@ if (activeView === "analytics") {
             >
                 Study Analytics
             </button>
+
+
+            <button
+              type="button"
+                onClick={() => setActiveView("quizzes")}
+                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
+          >
+              Adaptive Quizzes
+          </button>
+
 
 
             <button
