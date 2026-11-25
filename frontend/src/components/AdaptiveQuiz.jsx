@@ -1,5 +1,5 @@
-
 import { useEffect, useState } from "react";
+import QuizInsights from "./QuizInsights";
 
 const buttonPrimary =
   "rounded-xl bg-espresso px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50";
@@ -398,6 +398,9 @@ export default function AdaptiveQuiz({ onBack }) {
           </section>
         )}
 
+
+        {/* Learning insights */}
+        {!attempt && <QuizInsights />}
         {/* Active quiz */}
         {attempt && !result && currentQuestion && (
           <section className="mt-10 rounded-[24px] border border-[#E8DED5] bg-white p-6 sm:p-8">
