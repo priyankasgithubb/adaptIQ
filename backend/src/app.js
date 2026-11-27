@@ -14,10 +14,19 @@ import quizRoutes from "./routes/quizzes.js";
 import reviewRoutes from "./routes/reviews.js";
 import recommendationRoutes from "./routes/recommendations.js";
 import calendarRoutes from "./routes/calendar.js";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./lib/db.js";
 
 
 export function createApp() {
   const app = express();
+  const isProduction = process.env.NODE_ENV === "production";
+
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
+const PgSession = connectPgSimple(session);
 
   if (!process.env.SESSION_SECRET && process.env.NODE_ENV === "production") {
     throw new Error("SESSION_SECRET must be set in production");
@@ -26,20 +35,25 @@ export function createApp() {
   app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173", credentials: true }));
   app.use(express.json());
 
-  app.use(
-    session({
-      name: "adaptiq.sid",
-      secret: process.env.SESSION_SECRET || "dev-only-secret",
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,                                // JavaScript can't read the cookie
-        sameSite: "lax",                               // helps block cross-site attacks
-        secure: process.env.NODE_ENV === "production", // HTTPS only in production
-        maxAge: 1000 * 60 * 60 * 24 * 7,               // 7 days
-      },
-    })
-  );
+app.use(
+  session({
+    name: "adaptiq.sid",
+    secret: process.env.SESSION_SECRET || "dev-only-secret",
+    store: new PgSession({
+      pool,
+      tableName: "user_sessions",
+      createTableIfMissing: true,
+    }),
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
+  })
+);
 
   app.get("/api/health", (req, res) => res.json({ ok: true }));
   app.use("/api/auth", authRoutes);

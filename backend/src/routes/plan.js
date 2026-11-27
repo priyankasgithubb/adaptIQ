@@ -8,7 +8,7 @@ import { loadPriorities } from "../lib/loadPriorities.js";
 const router = Router();
 router.use(requireAuth);
 
-const PLANNER_URL = process.env.PLANNER_URL || "http://127.0.0.1:8000";
+const PLANNER_URL = process.env.PLANNER_URL || "http://127.0.0.1:8001";
 const SUBJECT_WEEK_CAP_MIN = 240;
 
 const toMinutes = (hhmm) => {
@@ -103,12 +103,19 @@ async function generatePlan(userId, profile) {
     };
   }
 
-  if (!response.ok) {
-    return {
-      error: "The planner could not build a timetable",
-      status: 502,
-    };
-  }
+if (!response.ok) {
+  const details = await response.text();
+
+  console.error("Python planner failed:", {
+    httpStatus: response.status,
+    details,
+  });
+
+  return {
+    error: "The planner could not build a timetable",
+    status: 502,
+  };
+}
 
   const data = await response.json();
 
