@@ -1,4 +1,6 @@
+
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import SubjectInsights from "./SubjectInsights";
 import ManageSubjects from "./ManageSubjects";
 import ManageAvailability from "./ManageAvailability";
@@ -9,6 +11,35 @@ import StudentAnalytics from "./StudentAnalytics";
 import AdaptiveQuiz from "./AdaptiveQuiz";
 import SpacedRepetition from "./SpacedRepetition";
 import StudyRecommendations from "./StudyRecommendations";
+
+const NAV_GROUPS = [
+  {
+    label: "Study Planner",
+    items: [
+      { label: "My Subjects", view: "subjects" },
+      { label: "My Schedule", view: "schedule" },
+      { label: "Update Timetable", view: "regenerate" },
+      { label: "Adaptive Recovery", view: "recovery" },
+    ],
+  },
+  {
+    label: "Practice",
+    items: [
+      { label: "Adaptive Quizzes", view: "quizzes" },
+      { label: "Spaced Repetition", view: "reviews" },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { label: "Study Analytics", view: "analytics" },
+      {
+        label: "Study Recommendations",
+        view: "recommendations",
+      },
+    ],
+  },
+];
 
 const DAYS = [
   "Monday",
@@ -58,7 +89,11 @@ function formatTime(time) {
 }
 
 function formatDuration(minutes) {
-  const total = Math.max(0, Math.floor(Number(minutes) || 0));
+  const total = Math.max(
+    0,
+    Math.floor(Number(minutes) || 0)
+  );
+
   const hours = Math.floor(total / 60);
   const remaining = total % 60;
 
@@ -68,6 +103,10 @@ function formatDuration(minutes) {
   return `${hours}h ${remaining}m`;
 }
 
+// =====================================================
+// STAT CARD
+// =====================================================
+
 function StatCard({ label, value, detail, icon }) {
   return (
     <div className="rounded-[20px] border border-[#E9DFD5] bg-white p-5">
@@ -75,28 +114,38 @@ function StatCard({ label, value, detail, icon }) {
         {icon}
       </div>
 
-      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="text-xs font-medium text-muted">
+        {label}
+      </p>
 
       <p className="mt-2 text-3xl font-semibold tracking-tight text-espresso">
         {value}
       </p>
 
-      <p className="mt-2 text-xs text-muted">{detail}</p>
+      <p className="mt-2 text-xs text-muted">
+        {detail}
+      </p>
     </div>
   );
 }
+
+// =====================================================
+// STUDY SESSION CARD
+// =====================================================
 
 function SessionCard({ session, updating, onUpdate }) {
   const status = session.status || "planned";
   const scheduledMinutes = duration(session);
 
   const [showPartial, setShowPartial] = useState(false);
+
   const [partialMinutes, setPartialMinutes] = useState(
     session.status === "partial" &&
       session.actualMinutes != null
       ? String(session.actualMinutes)
       : ""
   );
+
   const [validationError, setValidationError] = useState("");
 
   function submitPartial(event) {
@@ -110,8 +159,11 @@ function SessionCard({ session, updating, onUpdate }) {
       value >= scheduledMinutes
     ) {
       setValidationError(
-        `Enter a whole number between 1 and ${scheduledMinutes - 1}.`
+        `Enter a whole number between 1 and ${
+          scheduledMinutes - 1
+        }.`
       );
+
       return;
     }
 
@@ -126,10 +178,10 @@ function SessionCard({ session, updating, onUpdate }) {
   }
 
   const buttonClass =
-    "rounded-lg border px-3 py-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40";
+    "min-h-11 min-w-0 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:cursor-not-allowed disabled:opacity-40 sm:px-3";
 
   return (
-    <div className="rounded-xl border border-[#EDE1D8] bg-white p-3.5">
+    <div className="min-w-0 rounded-xl border border-[#EDE1D8] bg-white p-4 sm:p-5">
       <div className="mb-3 h-1 w-8 rounded-full bg-coral" />
 
       <p className="break-words text-sm font-semibold text-espresso">
@@ -215,7 +267,10 @@ function SessionCard({ session, updating, onUpdate }) {
             onSubmit={submitPartial}
             className="mt-4 rounded-xl bg-[#FCF7F1] p-3"
           >
-            <label className="block text-xs font-semibold text-espresso">
+            <label
+              htmlFor={`partial-minutes-${session.id}`}
+              className="block text-xs font-semibold text-espresso"
+            >
               Minutes actually studied
             </label>
 
@@ -224,6 +279,7 @@ function SessionCard({ session, updating, onUpdate }) {
             </p>
 
             <input
+              id={`partial-minutes-${session.id}`}
               type="number"
               min={1}
               max={scheduledMinutes - 1}
@@ -235,12 +291,22 @@ function SessionCard({ session, updating, onUpdate }) {
                 setValidationError("");
               }}
               disabled={updating}
+              aria-invalid={Boolean(validationError)}
+              aria-describedby={
+                validationError
+                  ? `partial-error-${session.id}`
+                  : undefined
+              }
               placeholder="Enter minutes"
               className="mt-3 w-full rounded-lg border border-[#DED5CD] bg-white px-3 py-2.5 text-sm text-espresso outline-none focus:border-coral"
             />
 
             {validationError && (
-              <p role="alert" className="mt-2 text-xs text-red-700">
+              <p
+                id={`partial-error-${session.id}`}
+                role="alert"
+                className="mt-2 text-xs text-red-700"
+              >
                 {validationError}
               </p>
             )}
@@ -250,20 +316,30 @@ function SessionCard({ session, updating, onUpdate }) {
               disabled={updating}
               className="mt-3 w-full rounded-lg bg-espresso px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
             >
-              {updating ? "Saving..." : "Save partial progress"}
+              {updating
+                ? "Saving..."
+                : "Save partial progress"}
             </button>
           </form>
         )}
 
         {updating && (
-          <p role="status" className="mt-3 text-xs text-muted">
-            Updating session...
+          <p
+            role="status"
+            aria-live="polite"
+            className="mt-3 text-xs text-muted"
+          >
+            Saving your study progress...
           </p>
         )}
       </div>
     </div>
   );
 }
+
+// =====================================================
+// STUDENT DASHBOARD
+// =====================================================
 
 export default function StudentDashboard({
   user,
@@ -272,48 +348,73 @@ export default function StudentDashboard({
   logoutError,
 }) {
   const [activeView, setActiveView] = useState("overview");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const [plan, setPlan] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [updatingSessionId, setUpdatingSessionId] = useState(null);
+
+  const [updatingSessionId, setUpdatingSessionId] =
+    useState(null);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const loadDashboard = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError("");
+  // ===================================================
+  // LOAD CURRENT STUDY PLAN
+  // ===================================================
 
-    try {
-      const response = await fetch("/api/plan/current", {
-        credentials: "include",
-      });
+  const loadDashboard = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
 
-      const data = await response.json().catch(() => ({}));
+      setError("");
 
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Unable to load your study plan."
+      try {
+        const response = await fetch(
+          "/api/plan/current",
+          {
+            credentials: "include",
+          }
         );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              "Unable to load your study plan."
+          );
+        }
+
+        setPlan(data.plan);
+
+        setSessions(
+          Array.isArray(data.blocks)
+            ? data.blocks
+            : []
+        );
+
+        return true;
+      } catch (err) {
+        setError(err.message);
+        return false;
+      } finally {
+        if (!silent) setLoading(false);
       }
-
-      setPlan(data.plan);
-      setSessions(
-        Array.isArray(data.blocks) ? data.blocks : []
-      );
-
-      return true;
-    } catch (err) {
-      setError(err.message);
-      return false;
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
 
+  // ===================================================
+  // CALENDAR EXPORT
+  // ===================================================
 
   const [exportingCalendar, setExportingCalendar] =
     useState(false);
@@ -339,7 +440,8 @@ export default function StudentDashboard({
           .catch(() => ({}));
 
         throw new Error(
-          data.error || "Unable to export your calendar."
+          data.error ||
+            "Unable to export your calendar."
         );
       }
 
@@ -353,12 +455,14 @@ export default function StudentDashboard({
       );
 
       const filename =
-        filenameMatch?.[1] || "adaptiq-study-plan.ics";
+        filenameMatch?.[1] ||
+        "adaptiq-study-plan.ics";
 
       const url = URL.createObjectURL(blob);
 
       try {
         const link = document.createElement("a");
+
         link.href = url;
         link.download = filename;
 
@@ -366,9 +470,10 @@ export default function StudentDashboard({
         link.click();
         link.remove();
       } finally {
-        // Release the object URL after initiating
-        // the browser download.
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(
+          () => URL.revokeObjectURL(url),
+          1000
+        );
       }
 
       setSuccess(
@@ -381,8 +486,15 @@ export default function StudentDashboard({
     }
   }
 
+  // ===================================================
+  // UPDATE STUDY SESSION
+  // ===================================================
 
-  async function handleSessionUpdate(id, status, actualMinutes) {
+  async function handleSessionUpdate(
+    id,
+    status,
+    actualMinutes
+  ) {
     if (updatingSessionId) return;
 
     setUpdatingSessionId(id);
@@ -408,31 +520,34 @@ export default function StudentDashboard({
         }
       );
 
-      const data = await response.json().catch(() => ({}));
+      const data = await response
+        .json()
+        .catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Could not update study session."
+          data.error ||
+            "Could not update study session."
         );
       }
 
-      // Update the visible session immediately.
-      // Keep subjectName and other fields from the original session.
       setSessions((previous) =>
         previous.map((session) =>
           session.id === id
             ? {
                 ...session,
                 status: data.session.status,
-                actualMinutes: data.session.actualMinutes,
+                actualMinutes:
+                  data.session.actualMinutes,
               }
             : session
         )
       );
 
-      setSuccess("Study session updated successfully.");
+      setSuccess(
+        "Study session updated successfully."
+      );
 
-      // Reload the authoritative data from PostgreSQL.
       await loadDashboard(true);
     } catch (err) {
       setError(err.message);
@@ -441,27 +556,39 @@ export default function StudentDashboard({
     }
   }
 
+  // ===================================================
+  // DASHBOARD STATISTICS
+  // ===================================================
+
   const stats = useMemo(() => {
     const plannedMinutes = sessions.reduce(
-      (total, session) => total + duration(session),
+      (total, session) =>
+        total + duration(session),
       0
     );
 
-    const studiedMinutes = sessions.reduce((total, session) => {
-      if (
-        session.status !== "completed" &&
-        session.status !== "partial"
-      ) {
-        return total;
-      }
+    const studiedMinutes = sessions.reduce(
+      (total, session) => {
+        if (
+          session.status !== "completed" &&
+          session.status !== "partial"
+        ) {
+          return total;
+        }
 
-      const actual = Number(session.actualMinutes);
+        const actual = Number(
+          session.actualMinutes
+        );
 
-      return (
-        total +
-        (Number.isFinite(actual) ? Math.max(0, actual) : 0)
-      );
-    }, 0);
+        return (
+          total +
+          (Number.isFinite(actual)
+            ? Math.max(0, actual)
+            : 0)
+        );
+      },
+      0
+    );
 
     const completedSessions = sessions.filter(
       (session) => session.status === "completed"
@@ -486,225 +613,159 @@ export default function StudentDashboard({
       partialSessions,
       missedSessions,
       subjectCount,
+
       completionPercent: sessions.length
         ? Math.round(
-            (completedSessions / sessions.length) * 100
+            (completedSessions /
+              sessions.length) *
+              100
           )
         : 0,
     };
   }, [sessions]);
 
+  // ===================================================
+  // NAVIGATION VIEWS
+  // ===================================================
 
-if (activeView === "subjects") {
-  return (
-    <ManageSubjects
-      user={user}
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-      onLogout={onLogout}
-      logoutLoading={logoutLoading}
-    />
-  );
-}
+  if (activeView === "subjects") {
+    return (
+      <ManageSubjects
+        user={user}
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+        onLogout={onLogout}
+        logoutLoading={logoutLoading}
+      />
+    );
+  }
 
+  if (activeView === "schedule") {
+    return (
+      <ManageAvailability
+        user={user}
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+        onLogout={onLogout}
+        logoutLoading={logoutLoading}
+      />
+    );
+  }
 
-if (activeView === "schedule") {
-  return (
-    <ManageAvailability
-      user={user}
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-      onLogout={onLogout}
-      logoutLoading={logoutLoading}
-    />
-  );
-}
+  if (activeView === "settings") {
+    return (
+      <ManageProfile
+        user={user}
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+        onLogout={onLogout}
+        logoutLoading={logoutLoading}
+      />
+    );
+  }
 
+  if (activeView === "regenerate") {
+    return (
+      <PlanRegeneration
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
-if (activeView === "settings") {
-  return (
-    <ManageProfile
-      user={user}
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-      onLogout={onLogout}
-      logoutLoading={logoutLoading}
-    />
-  );
-}
+  if (activeView === "recovery") {
+    return (
+      <AdaptiveRecovery
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
+  if (activeView === "analytics") {
+    return (
+      <StudentAnalytics
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
-if (activeView === "regenerate") {
-  return (
-    <PlanRegeneration
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
+  if (activeView === "quizzes") {
+    return (
+      <AdaptiveQuiz
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
-if (activeView === "recovery") {
-  return (
-    <AdaptiveRecovery
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
+  if (activeView === "reviews") {
+    return (
+      <SpacedRepetition
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
-if (activeView === "analytics") {
-  return (
-    <StudentAnalytics
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
+  if (activeView === "recommendations") {
+    return (
+      <StudyRecommendations
+        onBack={() => {
+          setActiveView("overview");
+          loadDashboard();
+        }}
+      />
+    );
+  }
 
-
-if (activeView === "quizzes") {
-  return (
-    <AdaptiveQuiz
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
-
-
-if (activeView === "reviews") {
-  return (
-    <SpacedRepetition
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
-
-
-if (activeView === "recommendations") {
-  return (
-    <StudyRecommendations
-      onBack={() => {
-        setActiveView("overview");
-        loadDashboard();
-      }}
-    />
-  );
-}
-
-
-
+  // ===================================================
+  // MAIN DASHBOARD
+  // ===================================================
 
   return (
     <div className="min-h-screen bg-cream text-espresso">
-      <header className="border-b border-[#E9DFD5] bg-[#FFFCF9]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5 sm:px-10">
+      {/* HEADER */}
+      <header className="relative z-20 border-b border-[#E9DFD5] bg-[#FFFCF9]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-10">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-espresso text-xl font-bold text-coral">
               a.
             </div>
 
-            <span className="text-xl font-bold tracking-[-0.06em]">
-              adapt<span className="text-coral">IQ</span>
-            </span>
+            <div>
+              <span className="block text-xl font-bold tracking-[-0.03em] text-espresso">
+                adapt
+                <span className="text-coral">
+                  IQ
+                </span>
+              </span>
+
+              <span className="block text-[11px] text-muted">
+                Student workspace
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-                type="button"
-                onClick={() => setActiveView("subjects")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                My Subjects
-            </button>
-
-            <button
-                type="button"
-                onClick={() => setActiveView("schedule")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                My Schedule
-            </button>
-
-
-            <button
-                 type="button"
-                onClick={() => setActiveView("settings")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                Study Settings
-            </button>
-
-            <button
-                type="button"
-                    onClick={() => setActiveView("analytics")}
-                    className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                Study Analytics
-            </button>
-
-
-            <button
-              type="button"
-                onClick={() => setActiveView("quizzes")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-          >
-              Adaptive Quizzes
-          </button>
-
-
-          <button
-          type="button"
-            onClick={() => setActiveView("reviews")}
-            className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-        >
-            Spaced Repetition
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() => setActiveView("recommendations")}
-            className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-          >
-              Study Recommendations
-            </button>
-
-
-            <button
-                type="button"
-                onClick={() => setActiveView("regenerate")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                Update Timetable
-            </button>
-
-            <button
-                type="button"
-                onClick={() => setActiveView("recovery")}
-                className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-sand"
-            >
-                Adaptive Recovery
-            </button>
-
-            <span className="hidden max-w-[220px] truncate text-xs text-muted sm:block">
+          <div className="flex min-w-0 items-center gap-4">
+            <span className="hidden max-w-[240px] truncate text-xs text-muted sm:block">
               {user.email}
             </span>
 
@@ -712,60 +773,243 @@ if (activeView === "recommendations") {
               type="button"
               onClick={onLogout}
               disabled={logoutLoading}
-              className="rounded-xl border border-[#DED5CD] px-4 py-2.5 text-xs font-semibold transition hover:bg-sand disabled:opacity-50"
+              className="rounded-lg border border-[#DED5CD] bg-white px-4 py-2.5 text-xs font-semibold text-espresso transition hover:bg-[#F5F0EC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:opacity-50"
             >
-              {logoutLoading ? "Signing out..." : "Sign out"}
+              {logoutLoading
+                ? "Signing out..."
+                : "Sign out"}
             </button>
           </div>
         </div>
+
+        {/* NAVIGATION */}
+        <nav
+          aria-label="Main navigation"
+          className="border-t border-[#F0E8E1]"
+        >
+          {/* DESKTOP NAVIGATION */}
+          <div className="mx-auto hidden max-w-7xl items-center gap-2 px-10 py-2 md:flex">
+            <button
+              type="button"
+              aria-current="page"
+              className="rounded-lg bg-[#F2E5DC] px-4 py-2.5 text-sm font-semibold text-espresso"
+            >
+              Overview
+            </button>
+
+            {NAV_GROUPS.map((group) => (
+              <details
+                key={group.label}
+                className="group relative"
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-[#69564C] transition hover:bg-[#F5F0EC] hover:text-espresso focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral [&::-webkit-details-marker]:hidden">
+                  {group.label}
+
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    className="h-4 w-4 transition-transform group-open:rotate-180"
+                  >
+                    <path
+                      d="m6 9 6 6 6-6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </summary>
+
+                <div className="absolute left-0 top-full z-30 mt-2 w-56 rounded-xl border border-[#E9DFD5] bg-white p-2 shadow-lg shadow-black/5">
+                  {group.items.map((item) => (
+                    <button
+                      key={item.view}
+                      type="button"
+                      onClick={() =>
+                        setActiveView(item.view)
+                      }
+                      className="block w-full rounded-lg px-3 py-3 text-left text-sm text-[#69564C] transition hover:bg-[#F8F2ED] hover:text-espresso focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setActiveView("settings")}
+              className="rounded-lg px-4 py-2.5 text-sm font-medium text-[#69564C] transition hover:bg-[#F5F0EC] hover:text-espresso focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral"
+            >
+              Settings
+            </button>
+          </div>
+
+          {/* MOBILE NAVIGATION */}
+          <div className="md:hidden">
+            <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3">
+              <span className="text-xs font-semibold text-[#78665D]">
+                Navigation
+              </span>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setMobileMenuOpen((previous) => !previous)
+                }
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-navigation-menu"
+                aria-label={
+                  mobileMenuOpen
+                    ? "Close navigation menu"
+                    : "Open navigation menu"
+                }
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#DED5CD] bg-white px-4 text-sm font-medium text-espresso focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral"
+              >
+                {mobileMenuOpen ? "Close" : "Menu"}
+
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-4 w-4"
+                >
+                  {mobileMenuOpen ? (
+                    <path
+                      d="M6 6l12 12M18 6 6 18"
+                      strokeLinecap="round"
+                    />
+                  ) : (
+                    <path
+                      d="M4 7h16M4 12h16M4 17h16"
+                      strokeLinecap="round"
+                    />
+                  )}
+                </svg>
+              </button>
+            </div>
+
+            {mobileMenuOpen && (
+              <div
+                id="mobile-navigation-menu"
+                className="border-t border-[#E9DFD5] bg-[#FFFCF9] px-5 pb-5 pt-3"
+              >
+                <button
+                  type="button"
+                  aria-current="page"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block min-h-11 w-full rounded-lg bg-[#F2E5DC] px-4 py-3 text-left text-sm font-semibold text-espresso"
+                >
+                  Overview
+                </button>
+
+                {NAV_GROUPS.map((group) => (
+                  <details
+                    key={group.label}
+                    className="border-b border-[#F0E8E1]"
+                  >
+                    <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-espresso focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral [&::-webkit-details-marker]:hidden">
+                      {group.label}
+
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className="h-4 w-4"
+                      >
+                        <path
+                          d="m6 9 6 6 6-6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </summary>
+
+                    <div className="space-y-1 pb-3 pl-3">
+                      {group.items.map((item) => (
+                        <button
+                          key={item.view}
+                          type="button"
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            setActiveView(item.view);
+                          }}
+                          className="block min-h-11 w-full rounded-lg px-4 py-3 text-left text-sm text-[#69564C] transition hover:bg-[#F8F2ED] focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setActiveView("settings");
+                  }}
+                  className="mt-2 block min-h-11 w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-espresso transition hover:bg-[#F8F2ED] focus-visible:outline focus-visible:outline-2 focus-visible:outline-coral"
+                >
+                  Settings
+                </button>
+              </div>
+            )}
+          </div>
+        </nav>
       </header>
 
-      <main className="mx-auto max-w-7xl px-5 py-10 sm:px-10">
-        <div className="flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#B47763]">
-              YOUR LEARNING WORKSPACE
+      {/* MAIN CONTENT */}
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10 lg:px-10">
+        {/* PAGE INTRODUCTION */}
+        <div className="flex flex-col gap-6 border-b border-[#E9DFD5] pb-8 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#957565]">
+              Student dashboard
             </p>
 
-            <h1 className="mt-3 text-4xl font-semibold tracking-[-0.06em] sm:text-5xl">
-              Your study{" "}
-              <span className="font-serif italic text-[#C77761]">
-                overview.
-              </span>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.025em] text-espresso sm:text-4xl">
+              Study overview
             </h1>
 
-            <p className="mt-4 text-sm leading-6 text-muted">
-              Your weekly study plan and progress,
-              all in one place.
+            <p className="mt-3 text-sm leading-6 text-muted">
+              Your schedule, progress, and next steps.
             </p>
           </div>
 
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleCalendarExport}
+              disabled={exportingCalendar || loading || !plan}
+              className="rounded-lg border border-[#D8CABF] bg-white px-4 py-2.5 text-sm font-medium text-espresso transition-colors hover:bg-[#F5F0EC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {exportingCalendar
+                ? "Exporting..."
+                : "Export calendar"}
+            </button>
 
-          <button
-            type="button"
-            onClick={handleCalendarExport}
-            disabled={exportingCalendar || loading || !plan}
-            className="rounded-xl border border-[#D8CABF] bg-white px-5 py-3 text-xs font-semibold text-espresso transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-50"
-          >
-           {exportingCalendar
-            ? "Exporting..."
-            : "Download Calendar"}
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() => {
-              setSuccess("");
-              loadDashboard();
-            }}
-            disabled={loading || Boolean(updatingSessionId)}
-            className="rounded-xl border border-[#D8CABF] bg-white px-5 py-3 text-xs font-semibold transition hover:bg-sand disabled:opacity-50"
-          >
-            {loading ? "Refreshing..." : "↻ Refresh dashboard"}
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSuccess("");
+                loadDashboard();
+              }}
+              disabled={loading || Boolean(updatingSessionId)}
+              className="rounded-lg bg-espresso px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#654E43] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-coral disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
 
+        {/* ERROR MESSAGE */}
         {(error || logoutError) && (
           <div
             role="alert"
@@ -775,6 +1019,7 @@ if (activeView === "recommendations") {
           </div>
         )}
 
+        {/* SUCCESS MESSAGE */}
         {success && !error && (
           <div
             role="status"
@@ -784,6 +1029,7 @@ if (activeView === "recommendations") {
           </div>
         )}
 
+        {/* DASHBOARD CONTENT */}
         {loading && !plan ? (
           <p className="mt-12 text-sm text-muted">
             Loading your study dashboard...
@@ -793,13 +1039,15 @@ if (activeView === "recommendations") {
             <h2 className="text-xl font-semibold">
               No timetable available
             </h2>
+
             <p className="mt-3 text-sm text-muted">
-              Your dashboard will display your study sessions
-              after a weekly plan has been saved.
+              Your dashboard will display your study
+              sessions after a weekly plan has been saved.
             </p>
           </div>
         ) : (
           <>
+            {/* WEEKLY PROGRESS */}
             <section className="mt-10 rounded-[25px] bg-espresso p-7 text-white sm:p-9">
               <div className="flex flex-wrap items-start justify-between gap-5">
                 <div>
@@ -812,8 +1060,8 @@ if (activeView === "recommendations") {
                   </h2>
 
                   <p className="mt-3 text-sm leading-6 text-[#D0BCB1]">
-                    {sessions.length} scheduled sessions across{" "}
-                    {stats.subjectCount} subjects.
+                    {sessions.length} scheduled sessions
+                    across {stats.subjectCount} subjects.
                   </p>
                 </div>
 
@@ -827,8 +1075,10 @@ if (activeView === "recommendations") {
                   <span className="text-[#E8D4CB]">
                     Completed sessions
                   </span>
+
                   <span className="font-semibold">
-                    {stats.completedSessions} / {sessions.length}
+                    {stats.completedSessions} /{" "}
+                    {sessions.length}
                   </span>
                 </div>
 
@@ -850,6 +1100,7 @@ if (activeView === "recommendations") {
               </div>
             </section>
 
+            {/* STATISTICS */}
             <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 icon="◷"
@@ -880,28 +1131,29 @@ if (activeView === "recommendations") {
               />
             </section>
 
+            {/* SUBJECT INSIGHTS */}
             <SubjectInsights />
 
-            <section className="mt-10">
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            {/* WEEKLY TIMETABLE */}
+            <section className="mt-12">
+              <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-tight">
+                  <h2 className="text-2xl font-semibold tracking-tight text-espresso">
                     Weekly timetable
                   </h2>
 
-                  <p className="mt-2 text-sm text-muted">
-                    Review your study sessions and record
-                    your progress.
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    Your study sessions, organized by day.
                   </p>
                 </div>
 
-                <span className="rounded-full border border-[#E1D6CB] px-4 py-2 text-xs text-muted">
+                <span className="rounded-lg border border-[#E1D6CB] bg-white px-3 py-2 text-xs font-medium text-[#78665D]">
                   Week of{" "}
                   {String(plan.week_start || "").slice(0, 10)}
                 </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="overflow-hidden rounded-2xl border border-[#E9DFD5] bg-white">
                 {DAYS.map((day, index) => {
                   const daySessions = sessions
                     .filter(
@@ -917,24 +1169,36 @@ if (activeView === "recommendations") {
                   return (
                     <div
                       key={day}
-                      className="min-h-48 rounded-[20px] border border-[#E9DFD5] bg-[#FCFAF8] p-4"
+                      className={`grid gap-4 p-5 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-8 sm:p-6 ${
+                        index !== 0
+                          ? "border-t border-[#F0E7E0]"
+                          : ""
+                      }`}
                     >
-                      <div className="mb-5 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold">
+                      <div className="sm:pt-1">
+                        <h3 className="text-sm font-semibold text-espresso">
                           {day}
                         </h3>
 
-                        <span className="text-xs text-muted">
-                          {daySessions.length} sessions
-                        </span>
+                        <p className="mt-1 text-xs text-muted">
+                          {daySessions.length === 0
+                            ? "No sessions"
+                            : `${daySessions.length} ${
+                                daySessions.length === 1
+                                  ? "session"
+                                  : "sessions"
+                              }`}
+                        </p>
                       </div>
 
                       {daySessions.length === 0 ? (
-                        <p className="py-8 text-center text-xs text-[#A99A90]">
-                          No sessions planned
-                        </p>
+                        <div className="flex min-h-12 items-center rounded-lg bg-[#FCFAF8] px-4">
+                          <p className="text-xs text-[#93857D]">
+                            No study sessions scheduled
+                          </p>
+                        </div>
                       ) : (
-                        <div className="space-y-3">
+                        <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
                           {daySessions.map((session) => (
                             <SessionCard
                               key={session.id}
@@ -954,9 +1218,8 @@ if (activeView === "recommendations") {
             </section>
 
             <p className="mt-8 text-center text-xs text-muted">
-              Your progress is saved to PostgreSQL.
-              Adaptive recovery for missed sessions
-              will be added in a later step.
+              Your study progress is saved automatically.
+              Missed sessions can be managed through Adaptive Recovery.
             </p>
           </>
         )}
