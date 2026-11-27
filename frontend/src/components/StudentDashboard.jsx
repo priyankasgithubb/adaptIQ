@@ -314,6 +314,74 @@ export default function StudentDashboard({
     loadDashboard();
   }, [loadDashboard]);
 
+
+  const [exportingCalendar, setExportingCalendar] =
+    useState(false);
+
+  async function handleCalendarExport() {
+    if (exportingCalendar) return;
+
+    setExportingCalendar(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch(
+        "/api/calendar/export",
+        {
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        throw new Error(
+          data.error || "Unable to export your calendar."
+        );
+      }
+
+      const blob = await response.blob();
+
+      const contentDisposition =
+        response.headers.get("Content-Disposition");
+
+      const filenameMatch = contentDisposition?.match(
+        /filename="([^"]+)"/
+      );
+
+      const filename =
+        filenameMatch?.[1] || "adaptiq-study-plan.ics";
+
+      const url = URL.createObjectURL(blob);
+
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        // Release the object URL after initiating
+        // the browser download.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      setSuccess(
+        "Calendar exported successfully. Import the downloaded .ics file into your calendar app."
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExportingCalendar(false);
+    }
+  }
+
+
   async function handleSessionUpdate(id, status, actualMinutes) {
     if (updatingSessionId) return;
 
@@ -671,6 +739,19 @@ if (activeView === "recommendations") {
               all in one place.
             </p>
           </div>
+
+
+          <button
+            type="button"
+            onClick={handleCalendarExport}
+            disabled={exportingCalendar || loading || !plan}
+            className="rounded-xl border border-[#D8CABF] bg-white px-5 py-3 text-xs font-semibold text-espresso transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+           {exportingCalendar
+            ? "Exporting..."
+            : "Download Calendar"}
+          </button>
+
 
           <button
             type="button"

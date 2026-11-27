@@ -13,6 +13,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import quizRoutes from "./routes/quizzes.js";
 import reviewRoutes from "./routes/reviews.js";
 import recommendationRoutes from "./routes/recommendations.js";
+import calendarRoutes from "./routes/calendar.js";
 
 
 export function createApp() {
@@ -53,6 +54,7 @@ export function createApp() {
   app.use("/api/quizzes", quizRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/recommendations", recommendationRoutes);
+  app.use("/api/calendar", calendarRoutes);
   
   // Four parameters tell Express this is the error handler.
   app.use((err, req, res, next) => {
